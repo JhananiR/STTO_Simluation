@@ -1,0 +1,298 @@
+---
+title: "STTO_Sim_Part1"
+output: html_document
+date: "2026-04-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load libraries
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(ggrepel)
+library(patchwork)
+library(lfmm)
+source("manhattan_plot.R")
+```
+
+```{r}
+geno_23 = read.delim("data/merged_maf_common_WL2_2023.tsv", header = TRUE)
+
+# I'm going to simulate some climate data here. But ideally they should be real data
+pops =colnames(geno_23)[-1]
+npop = length(pops)
+climate_data_sim = tibble(PopID = pops,
+max_temp = rnorm(npop),
+min_temp = rnorm(npop),
+cwd = rnorm(npop),
+ppt = rnorm(npop))
+```
+
+
+Read historical data
+```{r}
+his_data = read.delim("data/Historical_climate_caladapt_1950_2004.tsv", header = TRUE)
+```
+
+```{r}
+mean_his = his_data %>% 
+  group_by(id, cvar, gcm) %>% 
+  summarise(mean_val = mean(val))
+```
+```{r}
+HadGEM2_mean = mean_his %>% 
+  filter(gcm == "HadGEM2-ES") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+```{r}
+Y_2023 = as.matrix(geno_23[,-1])
+Y_2023 = t(Y_2023)
+```
+
+```{r}
+X_2023 = HadGEM2_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+
+```{r}
+rownames(X_2023) = HadGEM2_mean$id
+common = intersect(rownames(X_2023), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_2023 = X_2023[common, , drop = FALSE]
+```
+
+```{r}
+mod.lfmm = lfmm_ridge(Y = Y_2023, 
+    X = X_2023, 
+    K = 1)
+
+pv_2023 = lfmm_test(Y = Y_2023, 
+    X = X_2023, 
+    lfmm = mod.lfmm, 
+    calibrate = "gif")
+```
+
+
+```{r}
+pvalues_2023.raw = pv_2023$pvalue[,1]
+
+n = length(sort(pvalues_2023.raw))
+df = tibble(observed = sort(-log10(pvalues_2023.raw)),
+expected = sort(-log10(ppoints(n))),
+clower   = -log10(qbeta(p = (1 - 0.95) / 2, shape1 = 1:n, shape2 = n:1)),
+cupper   = -log10(qbeta(p = (1 + 0.95) / 2, shape1 = 1:n, shape2 = n:1))
+)
+
+# Convert p-values to 1-df chi-squared statistics
+chi2 <- qchisq(pvalues_2023.raw, df=1, lower.tail=FALSE)
+# Calculate lambda
+lambda <- median(chi2) / qchisq(0.5, df=1)
+print(lambda)
+
+
+df |>
+ggplot() +
+geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper), alpha = 0.1) +
+geom_point(aes(expected, observed), shape = 1, size = 3) +
+geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+theme_bw() +
+labs(x = expression(paste("Expected -log"[10], plain(P))),
+y = expression(paste("Observed -log"[10], plain(P))))
+```
+
+```{r}
+ mod.lfmm_lasso <- lfmm_lasso(Y = Y_2023, 
+                        X = X_2023, 
+                        K = 5,
+                        nozero.prop = 0.01)
+```
+
+
+```{r}
+pv_lasso <- lfmm_test(Y = Y_2023, 
+                 X = X_2023, 
+                 lfmm = mod.lfmm_lasso, 
+                 calibrate = "gif")
+```
+
+p-values for max temp/min temp/pr
+```{r}
+pvalues_2023.raw_lasso = pv_lasso$pvalue[,3]
+
+n = length(sort(pvalues_2023.raw_lasso))
+df = tibble(observed = sort(-log10(pvalues_2023.raw_lasso)),
+expected = sort(-log10(ppoints(n))),
+clower   = -log10(qbeta(p = (1 - 0.95) / 2, shape1 = 1:n, shape2 = n:1)),
+cupper   = -log10(qbeta(p = (1 + 0.95) / 2, shape1 = 1:n, shape2 = n:1))
+)
+
+# Convert p-values to 1-df chi-squared statistics
+chi2 <- qchisq(pvalues_2023.raw_lasso, df=1, lower.tail=FALSE)
+# Calculate lambda
+lambda <- median(chi2) / qchisq(0.5, df=1)
+print(lambda)
+
+
+df |>
+ggplot() +
+geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper), alpha = 0.1) +
+geom_point(aes(expected, observed), shape = 1, size = 3) +
+geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+theme_bw() +
+labs(x = expression(paste("Expected -log"[10], plain(P))),
+y = expression(paste("Observed -log"[10], plain(P))))
+```
+
+Function
+```{r}
+plot_qq <- function(pvalue_data = NULL,
+                    index = 1){
+  pvalues.raw = pvalue_data$pvalue[,index]
+  
+n = length(sort(pvalues.raw))
+df = tibble(observed = sort(-log10(pvalues.raw)),
+expected = sort(-log10(ppoints(n))),
+clower   = -log10(qbeta(p = (1 - 0.95) / 2, shape1 = 1:n, shape2 = n:1)),
+cupper   = -log10(qbeta(p = (1 + 0.95) / 2, shape1 = 1:n, shape2 = n:1))
+)
+
+# Convert p-values to 1-df chi-squared statistics
+chi2 <- qchisq(pvalues.raw, df=1, lower.tail=FALSE)
+# Calculate lambda
+lambda <- median(chi2) / qchisq(0.5, df=1)
+print(lambda)
+
+y_max_print = df |>
+  slice_max(observed, n=1) |>
+  pull(observed)
+  lambda = round(lambda, digits =2)
+
+
+p = df |>
+ggplot() +
+geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper), alpha = 0.1) +
+geom_point(aes(expected, observed), shape = 1, size = 3) +
+geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+theme_bw() +
+annotate(geom = "text", x=1, y = y_max_print-0.5, label = paste0("Lambda = ", lambda))+
+labs(x = expression(paste("Expected -log"[10], plain(P))),
+y = expression(paste("Observed -log"[10], plain(P))))
+
+return(p)
+
+}
+```
+
+```{r}
+plot_qq(pv_lasso, index = 1)
+```
+
+
+```{r}
+run_lasso <- function(X=NULL,Y=NULL,K=4) {
+   mod.lfmm_lasso <- lfmm_lasso(Y = Y, 
+                        X = X, 
+                        K = K,
+                        nozero.prop = 0.01)
+   pv_lasso <- lfmm_test(Y = Y, 
+                 X = X, 
+                 lfmm = mod.lfmm_lasso, 
+                 calibrate = "gif")
+   return(pv_lasso)
+}
+```
+
+```{r}
+pv_lasso_1 = run_lasso(X_2023, Y_2023)
+```
+
+```{r}
+plot_qq(pv_lasso_1, index = 1)
+plot_qq(pv_lasso_1, index = 2)
+plot_qq(pv_lasso_1, index = 3)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_1$pvalue[,1], calibrated.pvalue = pv_lasso_1$calibrated.pvalue[,1]) |>
+separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        title = "WL2 2023",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+CNRM_CM5_mean = mean_his %>% 
+  filter(gcm == "CNRM-CM5") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_CNRM_CM5 = CNRM_CM5_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_CNRM_CM5) = CNRM_CM5_mean$id
+common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_CNRM_CM5 = X_CNRM_CM5[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_CNRM_CM5 = run_lasso(X_CNRM_CM5, Y_2023)
+```
+
+```{r}
+plot_qq(pv_lasso_CNRM_CM5, index = 1)
+plot_qq(pv_lasso_CNRM_CM5, index = 2)
+plot_qq(pv_lasso_CNRM_CM5, index = 3)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pvalue[,3], calibrated.pvalue = pv_lasso_CNRM_CM5$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        title = "WL2 2023",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
