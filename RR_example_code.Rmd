@@ -27,7 +27,7 @@ There are two files in the data folder, a historic and future projection.
 Load the two files and take a look at it and see how they are organized.
 
 ```{r}
-geno_23 = read.delim("data/merged_maf_common_WL2_2023.tsv", header = TRUE)
+geno_23 = read.delim("data/snp_allele_freq_mat.csv", header = TRUE, sep =",")
 
 # I'm going to simulate some climate data here. But ideally they should be real data
 pops =colnames(geno_23)[-1]
@@ -62,9 +62,9 @@ X_2023 = X_2023[common, , drop = FALSE]
 And we run the LFMM and then calculate the p-values
 
 ```{r}
-mod.lfmm = lfmm_ridge(Y = Y_2023, 
+mod.lfmm = lfmm_lasso(Y = Y_2023, 
     X = X_2023, 
-    K = 2)
+    K = 5)
 
 pv_2023 = lfmm_test(Y = Y_2023, 
     X = X_2023, 
@@ -108,7 +108,7 @@ Finally make some manhattan plot
 
 ```{r}
 plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_2023$pvalue[,1], calibrated.pvalue = pv_2023$calibrated.pvalue[,1]) |>
-separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
 filter(str_detect(chr, "Chr")) |>
 mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
