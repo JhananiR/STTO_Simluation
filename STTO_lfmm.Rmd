@@ -37,6 +37,9 @@ Read historical data
 his_data = read.delim("data/Historical_climate_caladapt_1950_2004.tsv", header = TRUE)
 ```
 
+
+
+HadGEM2-ES Model
 ```{r}
 mean_his = his_data %>% 
   group_by(id, cvar, gcm) %>% 
@@ -243,6 +246,8 @@ print(manhattan_WL2)
 #ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
 ```
 
+
+CNRM_CM5 Model
 ```{r}
 CNRM_CM5_mean = mean_his %>% 
   filter(gcm == "CNRM-CM5") %>% 
@@ -277,6 +282,121 @@ plot_qq(pv_lasso_CNRM_CM5, index = 3)
 
 ```{r}
 plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pvalue[,3], calibrated.pvalue = pv_lasso_CNRM_CM5$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        title = "WL2 2023",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+CanESM2 Model
+```{r}
+CanESM2_mean = mean_his %>% 
+  filter(gcm == "CanESM2") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_CanESM2 = CanESM2_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_CanESM2) = CanESM2_mean$id
+common = intersect(rownames(X_CanESM2), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_CanESM2 = X_CanESM2[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_CanESM2 = run_lasso(X_CanESM2, Y_2023)
+```
+
+```{r}
+plot_qq(pv_lasso_CanESM2, index = 1)
+plot_qq(pv_lasso_CanESM2, index = 2)
+plot_qq(pv_lasso_CanESM2, index = 3)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pvalue[,3], calibrated.pvalue = pv_lasso_CanESM2$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        title = "WL2 2023",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+MIROC5 Model
+
+```{r}
+MIROC5_mean = mean_his %>% 
+  filter(gcm == "MIROC5") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_MIROC5 = MIROC5_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_MIROC5) = MIROC5_mean$id
+common = intersect(rownames(X_MIROC5), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_MIROC5 = X_MIROC5[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_MIROC5 = run_lasso(X_MIROC5, Y_2023)
+```
+
+
+```{r}
+plot_qq(pv_lasso_MIROC5, index = 1)
+plot_qq(pv_lasso_MIROC5, index = 2)
+plot_qq(pv_lasso_MIROC5, index = 3)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_MIROC5$pvalue[,3], calibrated.pvalue = pv_lasso_MIROC5$calibrated.pvalue[,3]) |>
 separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
 filter(str_detect(chr, "Chr")) |>
 mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
