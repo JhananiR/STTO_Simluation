@@ -37,25 +37,47 @@ Read historical data
 his_data = read.delim("data/Historical_climate_caladapt_1950_2004.tsv", header = TRUE)
 ```
 
-
-
-HadGEM2-ES Model
+Read Future Climate data
 ```{r}
-mean_his = his_data %>% 
+fut_data = read.delim("data/Future_climate_ppt_caladapt_2040_2070.tsv", header = TRUE)
+```
+
+```{r}
+mean_fut <- fut_data %>% 
   group_by(id, cvar, gcm) %>% 
   summarise(mean_val = mean(val))
 ```
+```{r}
+write_csv(mean_fut, "data/mean_future_climate.csv")
+```
+
+
+```{r}
+mean_his <- his_data %>% 
+  group_by(id, cvar, gcm) %>% 
+  summarise(mean_val = mean(val))
+```
+```{r}
+write_csv(mean_his, "data/mean_historical_climate.csv")
+```
+
+
+
+
+HadGEM2-ES Model
 ```{r}
 HadGEM2_mean = mean_his %>% 
   filter(gcm == "HadGEM2-ES") %>% 
   pivot_wider(names_from = cvar, values_from = mean_val)
 ```
 
+do this once
 ```{r}
 Y_2023 = as.matrix(geno_23[,-1])
 Y_2023 = t(Y_2023)
 ```
 
+do this everytime running a model
 ```{r}
 X_2023 = HadGEM2_mean %>% 
   ungroup() %>% 
@@ -367,6 +389,12 @@ MIROC5_mean = mean_his %>%
   pivot_wider(names_from = cvar, values_from = mean_val)
 ```
 
+```{r}
+MIROC5_fut_mean = mean_fut %>% 
+  filter(gcm == "MIROC5") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
 
 ```{r}
 X_MIROC5 = MIROC5_mean %>% 
@@ -377,11 +405,26 @@ X_MIROC5 = MIROC5_mean %>%
 ```
 
 ```{r}
+X_MIROC5_fut = MIROC5_fut_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+
+```{r}
 rownames(X_MIROC5) = MIROC5_mean$id
 common = intersect(rownames(X_MIROC5), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
 X_MIROC5 = X_MIROC5[common, , drop = FALSE]
 ```
+
+```{r}
+rownames(X_MIROC5_fut) = MIROC5_fut_mean$id
+X_MIROC5_fut = X_MIROC5_fut[common, , drop = FALSE]
+```
+
 
 ```{r}
 pv_lasso_MIROC5 = run_lasso(X_MIROC5, Y_2023)
@@ -416,3 +459,707 @@ print(manhattan_WL2)
 # Optionally save plot
 #ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
 ```
+
+
+Genetic Offset
+
+MIROC5 Model
+```{r}
+calculate_genomic_offset = function(allele_freq, 
+                                     lfmm_effects, 
+                                     env_current, 
+                                     env_future,
+                                     snp_filter = NULL,
+                                     method = "euclidean") {
+  
+  # Dimensions check
+  n_pop = nrow(allele_freq)
+  n_snp = ncol(allele_freq)
+  n_env = ncol(env_current)
+  
+  cat("\n=== Genomic Offset Calculation ===\n")
+  cat("Populations:", n_pop, "\n")
+  cat("SNPs (total):", n_snp, "\n")
+  cat("Environmental variables:", n_env, "\n")
+  
+  # Apply SNP filter if provided
+  if (!is.null(snp_filter)) {
+    allele_freq = allele_freq[, snp_filter, drop = FALSE]
+    lfmm_effects = lfmm_effects[snp_filter, , drop = FALSE]
+    cat("SNPs (after filtering):", sum(snp_filter), "\n")
+  }
+  
+  # Ensure environmental variables are standardized
+  # Use same scaling for current and future based on current
+  env_means = colMeans(env_current)
+  env_sds = apply(env_current, 2, sd)
+  
+  env_current_scaled = scale(env_current, center = env_means, scale = env_sds)
+  env_future_scaled = scale(env_future, center = env_means, scale = env_sds)
+  
+  cat("\nEnvironmental variables standardized using current climate statistics\n")
+  
+  # ========================================================================
+  # STEP 1: Calculate genetic values under current climate
+  # ========================================================================
+  # For each population, calculate adaptive genetic value
+  # genetic_value = sum over SNPs and env vars of:
+  #   (allele_freq × effect_size × env_value)
+  
+  genetic_values_current = matrix(0, nrow = n_pop, ncol = n_env)
+  
+  for (i in 1:n_pop) {
+    for (j in 1:n_env) {
+      # Allele frequency × effect size for this env variable
+      weighted_freqs = allele_freq[i, ] * lfmm_effects[, j]
+      # Weighted by environmental value
+      genetic_values_current[i, j] = sum(weighted_freqs) * env_current_scaled[i, j]
+    }
+  }
+  
+  # Total genetic value across all environmental axes
+  genetic_value_current_total = rowSums(genetic_values_current)
+  
+  cat("\nCurrent genetic values calculated\n")
+  
+  # ========================================================================
+  # STEP 2: Calculate genetic values under future climate
+  # ========================================================================
+  
+  genetic_values_future = matrix(0, nrow = n_pop, ncol = n_env)
+  
+  for (i in 1:n_pop) {
+    for (j in 1:n_env) {
+      # Same allele frequencies (no evolution assumed)
+      # But different environmental values
+      weighted_freqs = allele_freq[i, ] * lfmm_effects[, j]
+      genetic_values_future[i, j] = sum(weighted_freqs) * env_future_scaled[i, j]
+    }
+  }
+  
+  genetic_value_future_total = rowSums(genetic_values_future)
+  
+  cat("Future genetic values calculated\n")
+  
+  # ========================================================================
+  # STEP 3: Calculate offset
+  # ========================================================================
+  
+  if (method == "euclidean") {
+    # Euclidean distance across all environmental dimensions
+    offset = sqrt(rowSums((genetic_values_future - genetic_values_current)^2))
+    cat("\nOffset method: Euclidean distance\n")
+    
+  } else if (method == "absolute") {
+    # Simple absolute difference
+    offset = abs(genetic_value_future_total - genetic_value_current_total)
+    cat("\nOffset method: Absolute difference\n")
+    
+  } else if (method == "relative") {
+    # Relative change
+    offset = abs((genetic_value_future_total - genetic_value_current_total) / 
+                    (abs(genetic_value_current_total) + 1e-10))
+    cat("\nOffset method: Relative change\n")
+  }
+  
+  # ========================================================================
+  # STEP 4: Per-variable contributions
+  # ========================================================================
+  
+  # Calculate offset contribution from each environmental variable
+  offset_by_var = sqrt((genetic_values_future - genetic_values_current)^2)
+  colnames(offset_by_var) = colnames(env_current)
+  
+  cat("\nOffset calculation complete!\n")
+  cat("Mean offset:", round(mean(offset), 4), "\n")
+  cat("Range:", round(min(offset), 4), "-", round(max(offset), 4), "\n")
+  
+  # Return results
+  return(list(
+    offset = offset,
+    offset_by_variable = offset_by_var,
+    genetic_values_current = genetic_value_current_total,
+    genetic_values_future = genetic_value_future_total,
+    genetic_values_current_by_var = genetic_values_current,
+    genetic_values_future_by_var = genetic_values_future,
+    env_change = env_future_scaled - env_current_scaled,
+    n_snps_used = ncol(allele_freq)
+  ))
+}
+```
+
+
+
+```{r}
+allele_freq = Y_2023
+env_current = as.matrix(X_MIROC5)
+rownames(env_current) = pops
+env_future = as.matrix(X_MIROC5_fut)
+rownames(env_future) = pops
+lfmm_effects = pv_lasso_MIROC5$B
+# lfmm_pvalues = pv_2023$pvalue
+pop_names = rownames(allele_freq)
+
+
+offset_all = calculate_genomic_offset(
+  allele_freq = allele_freq,
+  lfmm_effects = lfmm_effects,
+  env_current = env_current,
+  env_future = env_future,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all$genetic_values_current,
+  genetic_value_future_all = offset_all$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change"
+  )
+print(p1)
+```
+
+CNRM_CM5 Model
+
+```{r}
+CNRM_CM5_mean = mean_his %>% 
+  filter(gcm == "CNRM-CM5") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+```{r}
+CNRM_CM5_fut_mean = mean_fut %>% 
+  filter(gcm == "CNRM-CM5") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_CNRM_CM5 = CNRM_CM5_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+X_CNRM_CM5_fut = CNRM_CM5_fut_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+
+```{r}
+rownames(X_CNRM_CM5) = CNRM_CM5_mean$id
+common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_CNRM_CM5 = X_CNRM_CM5[common, , drop = FALSE]
+```
+
+```{r}
+rownames(X_CNRM_CM5_fut) = CNRM_CM5_fut_mean$id
+X_CNRM_CM5_fut = X_CNRM_CM5_fut[common, , drop = FALSE]
+```
+
+
+```{r}
+allele_freq = Y_2023
+env_current = as.matrix(X_CNRM_CM5)
+rownames(env_current) = pops
+env_future = as.matrix(X_CNRM_CM5_fut)
+rownames(env_future) = pops
+lfmm_effects = pv_lasso_CNRM_CM5$B
+# lfmm_pvalues = pv_2023$pvalue
+pop_names = rownames(allele_freq)
+
+
+offset_all = calculate_genomic_offset(
+  allele_freq = allele_freq,
+  lfmm_effects = lfmm_effects,
+  env_current = env_current,
+  env_future = env_future,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all$genetic_values_current,
+  genetic_value_future_all = offset_all$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change"
+  )
+print(p1)
+```
+
+CanESM2 Model
+
+
+```{r}
+CanESM2_mean = mean_his %>% 
+  filter(gcm == "CanESM2") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+```{r}
+CanESM2_fut_mean = mean_fut %>% 
+  filter(gcm == "CanESM2") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_CanESM2 = CanESM2_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+X_CanESM2_fut = CanESM2_fut_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+
+```{r}
+rownames(X_CanESM2) = CanESM2_mean$id
+common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_CanESM2 = X_CanESM2[common, , drop = FALSE]
+```
+
+```{r}
+rownames(X_CanESM2_fut) = CanESM2_fut_mean$id
+X_CanESM2_fut = X_CanESM2_fut[common, , drop = FALSE]
+```
+
+
+```{r}
+allele_freq = Y_2023
+env_current = as.matrix(X_CanESM2)
+rownames(env_current) = pops
+env_future = as.matrix(X_CanESM2_fut)
+rownames(env_future) = pops
+lfmm_effects = pv_lasso_CanESM2$B
+# lfmm_pvalues = pv_2023$pvalue
+pop_names = rownames(allele_freq)
+
+
+offset_all = calculate_genomic_offset(
+  allele_freq = allele_freq,
+  lfmm_effects = lfmm_effects,
+  env_current = env_current,
+  env_future = env_future,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all$genetic_values_current,
+  genetic_value_future_all = offset_all$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change"
+  )
+print(p1)
+```
+
+
+HadGEM2-ES Model
+
+```{r}
+HadGEM2_mean = mean_his %>% 
+  filter(gcm == "HadGEM2-ES") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+```{r}
+HadGEM2_fut_mean = mean_fut %>% 
+  filter(gcm == "HadGEM2-ES") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_HadGEM2 = HadGEM2_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+X_HadGEM2_fut = HadGEM2_fut_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+
+```{r}
+rownames(X_HadGEM2) = HadGEM2_mean$id
+common = intersect(rownames(X_HadGEM2), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_HadGEM2 = X_HadGEM2[common, , drop = FALSE]
+```
+
+```{r}
+rownames(X_HadGEM2_fut) = HadGEM2_fut_mean$id
+X_HadGEM2_fut = X_HadGEM2_fut[common, , drop = FALSE]
+```
+
+
+```{r}
+allele_freq = Y_2023
+env_current = as.matrix(X_HadGEM2)
+rownames(env_current) = pops
+env_future = as.matrix(X_HadGEM2_fut)
+rownames(env_future) = pops
+lfmm_effects = pv_lasso_HadGEM2$B
+# lfmm_pvalues = pv_2023$pvalue
+pop_names = rownames(allele_freq)
+
+
+offset_all = calculate_genomic_offset(
+  allele_freq = allele_freq,
+  lfmm_effects = lfmm_effects,
+  env_current = env_current,
+  env_future = env_future,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all$genetic_values_current,
+  genetic_value_future_all = offset_all$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change"
+  )
+print(p1)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+SNP_allele data
+
+```{r}
+geno_23 = read.delim("data/snp_allele_freq_mat.csv", header = TRUE, sep = "," )
+```
+CNRM_CM5 Model
+```{r}
+Y_2023 = as.matrix(geno_23[,-1])
+Y_2023 = t(Y_2023)
+```
+
+
+```{r}
+CNRM_CM5_mean = mean_his %>% 
+  filter(gcm == "CNRM-CM5") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_CNRM_CM5 = CNRM_CM5_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_CNRM_CM5) = CNRM_CM5_mean$id
+common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_CNRM_CM5 = X_CNRM_CM5[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_CNRM_CM5 = run_lasso(X_CNRM_CM5, Y_2023)
+```
+
+```{r}
+plot_qq(pv_lasso_CNRM_CM5, index = 1)
+plot_qq(pv_lasso_CNRM_CM5, index = 2)
+plot_qq(pv_lasso_CNRM_CM5, index = 3)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pvalue[,3], calibrated.pvalue = pv_lasso_CNRM_CM5$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        title = "WL2 2023",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+CanESM2 MODEL
+```{r}
+CanESM2_mean = mean_his %>% 
+  filter(gcm == "CanESM2") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_CanESM2 = CanESM2_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_CanESM2) = CanESM2_mean$id
+common = intersect(rownames(X_CanESM2), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_CanESM2 = X_CanESM2[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_CanESM2 = run_lasso(X_CanESM2, Y_2023)
+```
+
+slightly higher values 
+```{r}
+plot_qq(pv_lasso_CanESM2, index = 1)
+plot_qq(pv_lasso_CanESM2, index = 2)
+plot_qq(pv_lasso_CanESM2, index = 3)
+```
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pvalue[,3], calibrated.pvalue = pv_lasso_CanESM2$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        title = "WL2 2023",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+
+MIROC Model
+```{r}
+MIROC5_mean = mean_his %>% 
+  filter(gcm == "MIROC5") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_MIROC5 = MIROC5_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_MIROC5) = MIROC5_mean$id
+common = intersect(rownames(X_MIROC5), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_MIROC5 = X_MIROC5[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_MIROC5 = run_lasso(X_MIROC5, Y_2023)
+```
+
+
+```{r}
+plot_qq(pv_lasso_MIROC5, index = 1)
+plot_qq(pv_lasso_MIROC5, index = 2)
+plot_qq(pv_lasso_MIROC5, index = 3)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_MIROC5$pvalue[,3], calibrated.pvalue = pv_lasso_MIROC5$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        title = "WL2 2023",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+
+HadGEM2-ES Model
+```{r}
+HadGEM2_mean = mean_his %>% 
+  filter(gcm == "HadGEM2-ES") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
+
+
+```{r}
+X_HadGEM2 = HadGEM2_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_HadGEM2) = HadGEM2_mean$id
+common = intersect(rownames(X_HadGEM2), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_HadGEM2 = X_HadGEM2[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_HadGEM2 = run_lasso(X_HadGEM2, Y_2023)
+```
+
