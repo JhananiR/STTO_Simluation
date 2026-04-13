@@ -42,6 +42,8 @@ Read Future Climate data
 fut_data = read.delim("data/Future_climate_ppt_caladapt_2040_2070.tsv", header = TRUE)
 ```
 
+
+ID is the name of the national park. Cvar is the climate variable (tasmax, tasmin, pr). GCM is the global climate model (HadGEM2-ES, CNRM-CM5, CanESM2, MIROC5). Val is the value of the climate variable for that park and that model.
 ```{r}
 mean_fut <- fut_data %>% 
   group_by(id, cvar, gcm) %>% 
@@ -65,13 +67,15 @@ write_csv(mean_his, "data/mean_historical_climate.csv")
 
 
 HadGEM2-ES Model
+
+
 ```{r}
 HadGEM2_mean = mean_his %>% 
   filter(gcm == "HadGEM2-ES") %>% 
   pivot_wider(names_from = cvar, values_from = mean_val)
 ```
 
-do this once
+do this once: remove first column, transpose the matrix, and make sure the row names are the same as the column names of the climate data
 ```{r}
 Y_2023 = as.matrix(geno_23[,-1])
 Y_2023 = t(Y_2023)
@@ -86,7 +90,8 @@ X_2023 = HadGEM2_mean %>%
   scale()
 ```
 
-
+Aligning genotype and environment data to match the same populations (rows)
+X_2023 = environmental variable matrix, Y_2023 = genotype matrix
 ```{r}
 rownames(X_2023) = HadGEM2_mean$id
 common = intersect(rownames(X_2023), rownames(Y_2023))
@@ -94,6 +99,10 @@ Y_2023 = Y_2023[common,]
 X_2023 = X_2023[common, , drop = FALSE]
 ```
 
+Latent Factor Mixed Model (LFMM) analysis
+This tests whether there are associations between the genotype data (Y) and the environmental variables (X) while accounting for hidden population structure (K = number of latent factors (like 1 population structure axis)). The "ridge" method is used for regularization.
+
+The second part of the chunk computes p-values for each SNP-environment association, and applies genomic inflation factor (GIF) calibration to correct for any inflation in test statistics due to population structure or other confounders.
 ```{r}
 mod.lfmm = lfmm_ridge(Y = Y_2023, 
     X = X_2023, 
@@ -104,6 +113,8 @@ pv_2023 = lfmm_test(Y = Y_2023,
     lfmm = mod.lfmm, 
     calibrate = "gif")
 ```
+Small p-values indicate strong associations between SNPs and environmental variables, suggesting potential local adaptation. The "gif" calibration helps to control for false positives by adjusting the p-values based on the observed distribution of test statistics.
+
 
 
 ```{r}
@@ -132,6 +143,12 @@ theme_bw() +
 labs(x = expression(paste("Expected -log"[10], plain(P))),
 y = expression(paste("Observed -log"[10], plain(P))))
 ```
+
+LFMM lasso vs ridge. 
+
+The ridge models shrink effect sizes towards zero but do not set any to exactly zero, which can help stabilize estimates when the number of predictors is large. However, this can make it harder to identify which specific SNPs are most strongly associated with the environmental variables, as all SNPs will have some non-zero effect size.
+
+The lasso models perform variable selection by shrinking some effect sizes to zero, which can help identify a subset of SNPs that are most strongly associated with the environmental variables. The "nonzero.prop" parameter controls the proportion of non-zero effects allowed in the model, with smaller values leading to more aggressive variable selection. In this case, setting it to 0.01 means that only 1% of the SNPs will be retained as having non-zero effects, which can help focus on the most relevant associations while reducing noise from less informative SNPs.
 
 ```{r}
  mod.lfmm_lasso <- lfmm_lasso(Y = Y_2023, 
@@ -245,7 +262,10 @@ plot_qq(pv_lasso_1, index = 2)
 plot_qq(pv_lasso_1, index = 3)
 ```
 
+Looking at the qq plots, it can be seen that the precipitation variable is the one with a lower lambda value, which suggests that the associations between SNPs and precipitation are less inflated and potentially more reliable than those for max temp and min temp. This could indicate that precipitation is a stronger driver of local adaptation in these populations compared to temperature variables, or it could reflect differences in the underlying genetic architecture of adaptation to these environmental factors. The max temp and min temp variables show higher lambda values, suggesting that there may be more confounding factors or population structure influencing the associations for these variables, which could lead to more false positives if not properly accounted for.
 
+
+Manhattan plots help see which SNPs are most strongly associated with the environment and where they are located in the genome. 
 ```{r}
 plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_1$pvalue[,1], calibrated.pvalue = pv_lasso_1$calibrated.pvalue[,1]) |>
 separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
@@ -267,6 +287,12 @@ print(manhattan_WL2)
 # Optionally save plot
 #ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
 ```
+For the HadGEM2-ES model, the Manhattan plot for the precipitation variable shows several SNPs with strong associations (low p-values) that stand out above the rest, indicating potential candidate loci for local adaptation to precipitation. In contrast, the max temp and min temp variables show fewer significant associations, and the points are more scattered, suggesting weaker or more diffuse signals of adaptation to temperature. This pattern reinforces the idea that precipitation may be a more important selective pressure driving local adaptation in these populations compared to temperature variables.
+
+Similar patterns are observed in the other climate models, with precipitation consistently showing stronger and more significant associations with SNPs compared to temperature variables. This suggests that across different climate models, precipitation may be a key environmental factor influencing local adaptation in these populations, while temperature variables may have a more complex or less direct relationship with genetic variation.
+
+
+Repeating the above processes for all the other three global climate models. 
 
 
 CNRM_CM5 Model
@@ -325,7 +351,9 @@ print(manhattan_WL2)
 ```
 
 
+
 CanESM2 Model
+
 ```{r}
 CanESM2_mean = mean_his %>% 
   filter(gcm == "CanESM2") %>% 
@@ -357,6 +385,8 @@ plot_qq(pv_lasso_CanESM2, index = 1)
 plot_qq(pv_lasso_CanESM2, index = 2)
 plot_qq(pv_lasso_CanESM2, index = 3)
 ```
+
+Based on the lambda values here, we can see that the associations for the precipitation variable in the CanESM2 model are less inflated (lower lambda) compared to the max temp and min temp variables, which show higher lambda values. 
 
 ```{r}
 plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pvalue[,3], calibrated.pvalue = pv_lasso_CanESM2$calibrated.pvalue[,3]) |>
@@ -461,7 +491,10 @@ print(manhattan_WL2)
 ```
 
 
-Genetic Offset
+Genomic Offset
+
+Now we will calculate the genetic offset. This is a measure of how much the genetic composition of a population would need to change to be optimally adapted to future environmental conditions. It is calculated by comparing the genetic values (based on allele frequencies and their effects) under current and future climates. A higher offset indicates a greater mismatch between current genetic composition and future optimal conditions, suggesting that the population may be at higher risk of maladaptation under climate change.
+
 
 MIROC5 Model
 ```{r}
@@ -589,6 +622,7 @@ calculate_genomic_offset = function(allele_freq,
 ```
 
 
+This will predict how genetically "out of sync" each population will be under future climate conditions based on the associations we found between SNPs and environmental variables. We can then compare this genomic offset to the magnitude of environmental change to see if populations experiencing greater environmental shifts also have higher genomic offsets, which would suggest they are at greater risk of maladaptation.
 
 ```{r}
 allele_freq = Y_2023
@@ -637,10 +671,16 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
   labs(
     x = "Environmental Change Magnitude",
     y = "Genomic Offset (ALL SNPs)",
-    title = "Offset vs Environmental Change"
+    title = "Offset vs Environmental Change - MIROC5 Model"
   )
 print(p1)
 ```
+
+National Parks FR and IH are high in genomic offset. IH has a higher environmental change magnitude than FR, but FR has a higher genomic offset. This suggests that the populations in FR may be more genetically mismatched to their future environment compared to IH, despite IH experiencing a greater overall change in environmental conditions. This could be due to differences in the specific environmental variables driving adaptation in each park, or differences in the genetic architecture of adaptation in the populations.
+
+
+Repeat the genomic offset models for the remaining global climate models. 
+
 
 CNRM_CM5 Model
 
@@ -733,10 +773,13 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
   labs(
     x = "Environmental Change Magnitude",
     y = "Genomic Offset (ALL SNPs)",
-    title = "Offset vs Environmental Change"
+    title = "Offset vs Environmental Change - CNRM_CM5 Model"
   )
 print(p1)
 ```
+
+In this Genetic Offset model for the CNRM_CM5 climate model, we can see that the population in FR National Park has a high genomic offset despite having a relatively moderate environmental change magnitude. This suggests that the genetic composition of the FR population may be particularly mismatched to the future environmental conditions predicted by the CNRM_CM5 model, potentially putting it at greater risk of maladaptation. In contrast, the IH population has a lower genomic offset despite experiencing a higher environmental change magnitude, which could indicate that its genetic composition is more resilient or better suited to the predicted future conditions under this climate model. The SC population shows a lower genomic offset and lower environmental change magnitude, suggesting it may be less at risk of maladaptation under the CNRM_CM5 model compared to the other two populations.
+
 
 CanESM2 Model
 
@@ -831,10 +874,12 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
   labs(
     x = "Environmental Change Magnitude",
     y = "Genomic Offset (ALL SNPs)",
-    title = "Offset vs Environmental Change"
+    title = "Offset vs Environmental Change - CanESM2 Model"
   )
 print(p1)
 ```
+
+For the CanESM2 Model, similar results are seen compared to the CNRM_CM5 model.
 
 
 HadGEM2-ES Model
@@ -929,26 +974,12 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
   labs(
     x = "Environmental Change Magnitude",
     y = "Genomic Offset (ALL SNPs)",
-    title = "Offset vs Environmental Change"
+    title = "Offset vs Environmental Change - HadGEM2-ES Model"
   )
 print(p1)
 ```
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+Similar results of genomic offset is seen compared to the other three climate models. 
 
 
 
