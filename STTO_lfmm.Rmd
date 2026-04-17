@@ -4,6 +4,7 @@ output: html_document
 date: "2026-04-06"
 ---
 
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -1157,7 +1158,7 @@ env_current = as.matrix(X_2023_gcm)
 rownames(env_current) = pops
 env_future = as.matrix(X_gcm_fut)
 rownames(env_future) = pops
-lfmm_effects = pv_lasso_HadGEM2$B
+lfmm_effects = pv_lasso_gcm_mean$B
 # lfmm_pvalues = pv_2023$pvalue
 pop_names = rownames(allele_freq)
 
