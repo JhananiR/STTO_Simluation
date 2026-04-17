@@ -56,8 +56,12 @@ write_csv(mean_fut, "data/mean_future_climate.csv")
 
 ```{r}
 mean_his <- his_data %>% 
+  filter(dt >= "1990-12-31") %>% 
   group_by(id, cvar, gcm) %>% 
-  summarise(mean_val = mean(val))
+  summarise(mean_val = mean(val),
+            cv = sd(val)/mean(val)) %>% 
+  ungroup()
+
 ```
 ```{r}
 write_csv(mean_his, "data/mean_historical_climate.csv")
@@ -72,7 +76,9 @@ HadGEM2-ES Model
 ```{r}
 HadGEM2_mean = mean_his %>% 
   filter(gcm == "HadGEM2-ES") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 do this once: remove first column, transpose the matrix, and make sure the row names are the same as the column names of the climate data
@@ -83,9 +89,9 @@ Y_2023 = t(Y_2023)
 
 do this everytime running a model
 ```{r}
-X_2023 = HadGEM2_mean %>% 
+X_2023_HadGEM2 = HadGEM2_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
@@ -93,55 +99,37 @@ X_2023 = HadGEM2_mean %>%
 Aligning genotype and environment data to match the same populations (rows)
 X_2023 = environmental variable matrix, Y_2023 = genotype matrix
 ```{r}
-rownames(X_2023) = HadGEM2_mean$id
+rownames(X_2023_HadGEM2) = HadGEM2_mean$id
 common = intersect(rownames(X_2023), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_2023 = X_2023[common, , drop = FALSE]
+X_2023_HadGEM2 = X_2023_HadGEM2[common, , drop = FALSE]
 ```
 
 Latent Factor Mixed Model (LFMM) analysis
 This tests whether there are associations between the genotype data (Y) and the environmental variables (X) while accounting for hidden population structure (K = number of latent factors (like 1 population structure axis)). The "ridge" method is used for regularization.
 
 The second part of the chunk computes p-values for each SNP-environment association, and applies genomic inflation factor (GIF) calibration to correct for any inflation in test statistics due to population structure or other confounders.
-```{r}
-mod.lfmm = lfmm_ridge(Y = Y_2023, 
-    X = X_2023, 
-    K = 1)
 
-pv_2023 = lfmm_test(Y = Y_2023, 
-    X = X_2023, 
-    lfmm = mod.lfmm, 
-    calibrate = "gif")
-```
 Small p-values indicate strong associations between SNPs and environmental variables, suggesting potential local adaptation. The "gif" calibration helps to control for false positives by adjusting the p-values based on the observed distribution of test statistics.
 
 
+Function for lasso
+```{r}
+run_lasso <- function(X=NULL,Y=NULL,K=5) {
+   mod.lfmm_lasso <- lfmm_lasso(Y = Y, 
+                        X = X, 
+                        K = K,
+                        nozero.prop = 0.01)
+   pv_lasso <- lfmm_test(Y = Y, 
+                 X = X, 
+                 lfmm = mod.lfmm_lasso, 
+                 calibrate = "gif")
+   return(pv_lasso)
+}
+```
 
 ```{r}
-pvalues_2023.raw = pv_2023$pvalue[,1]
-
-n = length(sort(pvalues_2023.raw))
-df = tibble(observed = sort(-log10(pvalues_2023.raw)),
-expected = sort(-log10(ppoints(n))),
-clower   = -log10(qbeta(p = (1 - 0.95) / 2, shape1 = 1:n, shape2 = n:1)),
-cupper   = -log10(qbeta(p = (1 + 0.95) / 2, shape1 = 1:n, shape2 = n:1))
-)
-
-# Convert p-values to 1-df chi-squared statistics
-chi2 <- qchisq(pvalues_2023.raw, df=1, lower.tail=FALSE)
-# Calculate lambda
-lambda <- median(chi2) / qchisq(0.5, df=1)
-print(lambda)
-
-
-df |>
-ggplot() +
-geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper), alpha = 0.1) +
-geom_point(aes(expected, observed), shape = 1, size = 3) +
-geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
-theme_bw() +
-labs(x = expression(paste("Expected -log"[10], plain(P))),
-y = expression(paste("Observed -log"[10], plain(P))))
+pv_lasso_HadGEM2 = run_lasso(X_2023_HadGEM2, Y_2023)
 ```
 
 LFMM lasso vs ridge. 
@@ -151,49 +139,13 @@ The ridge models shrink effect sizes towards zero but do not set any to exactly 
 The lasso models perform variable selection by shrinking some effect sizes to zero, which can help identify a subset of SNPs that are most strongly associated with the environmental variables. The "nonzero.prop" parameter controls the proportion of non-zero effects allowed in the model, with smaller values leading to more aggressive variable selection. In this case, setting it to 0.01 means that only 1% of the SNPs will be retained as having non-zero effects, which can help focus on the most relevant associations while reducing noise from less informative SNPs.
 
 ```{r}
- mod.lfmm_lasso <- lfmm_lasso(Y = Y_2023, 
-                        X = X_2023, 
-                        K = 5,
-                        nozero.prop = 0.01)
+#saveRDS(pv_lasso_HadGEM2, "data/pv_lasso_HadGEM2.rds")
+pv_lasso_HadGEM2 = readRDS("data/pv_lasso_HadGEM2.rds")
 ```
 
 
-```{r}
-pv_lasso <- lfmm_test(Y = Y_2023, 
-                 X = X_2023, 
-                 lfmm = mod.lfmm_lasso, 
-                 calibrate = "gif")
-```
 
-p-values for max temp/min temp/pr
-```{r}
-pvalues_2023.raw_lasso = pv_lasso$pvalue[,3]
-
-n = length(sort(pvalues_2023.raw_lasso))
-df = tibble(observed = sort(-log10(pvalues_2023.raw_lasso)),
-expected = sort(-log10(ppoints(n))),
-clower   = -log10(qbeta(p = (1 - 0.95) / 2, shape1 = 1:n, shape2 = n:1)),
-cupper   = -log10(qbeta(p = (1 + 0.95) / 2, shape1 = 1:n, shape2 = n:1))
-)
-
-# Convert p-values to 1-df chi-squared statistics
-chi2 <- qchisq(pvalues_2023.raw_lasso, df=1, lower.tail=FALSE)
-# Calculate lambda
-lambda <- median(chi2) / qchisq(0.5, df=1)
-print(lambda)
-
-
-df |>
-ggplot() +
-geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper), alpha = 0.1) +
-geom_point(aes(expected, observed), shape = 1, size = 3) +
-geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
-theme_bw() +
-labs(x = expression(paste("Expected -log"[10], plain(P))),
-y = expression(paste("Observed -log"[10], plain(P))))
-```
-
-Function
+Function for qqplot
 ```{r}
 plot_qq <- function(pvalue_data = NULL,
                     index = 1){
@@ -234,40 +186,23 @@ return(p)
 ```
 
 ```{r}
-plot_qq(pv_lasso, index = 1)
+plot_qq(pv_lasso_HadGEM2, index = 1)
+plot_qq(pv_lasso_HadGEM2, index = 2)
+plot_qq(pv_lasso_HadGEM2, index = 3)
+plot_qq(pv_lasso_HadGEM2, index = 4)
+plot_qq(pv_lasso_HadGEM2, index = 5)
+plot_qq(pv_lasso_HadGEM2, index = 6)
 ```
 
 
-```{r}
-run_lasso <- function(X=NULL,Y=NULL,K=4) {
-   mod.lfmm_lasso <- lfmm_lasso(Y = Y, 
-                        X = X, 
-                        K = K,
-                        nozero.prop = 0.01)
-   pv_lasso <- lfmm_test(Y = Y, 
-                 X = X, 
-                 lfmm = mod.lfmm_lasso, 
-                 calibrate = "gif")
-   return(pv_lasso)
-}
-```
 
-```{r}
-pv_lasso_1 = run_lasso(X_2023, Y_2023)
-```
-
-```{r}
-plot_qq(pv_lasso_1, index = 1)
-plot_qq(pv_lasso_1, index = 2)
-plot_qq(pv_lasso_1, index = 3)
-```
 
 Looking at the qq plots, it can be seen that the precipitation variable is the one with a lower lambda value, which suggests that the associations between SNPs and precipitation are less inflated and potentially more reliable than those for max temp and min temp. This could indicate that precipitation is a stronger driver of local adaptation in these populations compared to temperature variables, or it could reflect differences in the underlying genetic architecture of adaptation to these environmental factors. The max temp and min temp variables show higher lambda values, suggesting that there may be more confounding factors or population structure influencing the associations for these variables, which could lead to more false positives if not properly accounted for.
 
 
 Manhattan plots help see which SNPs are most strongly associated with the environment and where they are located in the genome. 
 ```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_1$pvalue[,1], calibrated.pvalue = pv_lasso_1$calibrated.pvalue[,1]) |>
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_HadGEM2$pvalue[,1], calibrated.pvalue = pv_lasso_HadGEM2$calibrated.pvalue[,1]) |>
 separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
 filter(str_detect(chr, "Chr")) |>
 mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
@@ -299,33 +234,44 @@ CNRM_CM5 Model
 ```{r}
 CNRM_CM5_mean = mean_his %>% 
   filter(gcm == "CNRM-CM5") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 
 ```{r}
-X_CNRM_CM5 = CNRM_CM5_mean %>% 
+X_2023_CNRM_CM5 = CNRM_CM5_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
 ```{r}
-rownames(X_CNRM_CM5) = CNRM_CM5_mean$id
-common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
+rownames(X_2023_CNRM_CM5) = CNRM_CM5_mean$id
+common = intersect(rownames(X_2023_CNRM_CM5), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_CNRM_CM5 = X_CNRM_CM5[common, , drop = FALSE]
+X_2023_CNRM_CM5 = X_2023_CNRM_CM5[common, , drop = FALSE]
 ```
 
 ```{r}
-pv_lasso_CNRM_CM5 = run_lasso(X_CNRM_CM5, Y_2023)
+pv_lasso_CNRM_CM5 = run_lasso(X_2023_CNRM_CM5, Y_2023)
+```
+
+
+```{r}
+#saveRDS(pv_lasso_CNRM_CM5, "data/pv_lasso_CNRM_CM5.rds")
+pv_lasso_CNRM_CM5 = readRDS("data/pv_lasso_CNRM_CM5.rds")
 ```
 
 ```{r}
 plot_qq(pv_lasso_CNRM_CM5, index = 1)
 plot_qq(pv_lasso_CNRM_CM5, index = 2)
 plot_qq(pv_lasso_CNRM_CM5, index = 3)
+plot_qq(pv_lasso_CNRM_CM5, index = 4)
+plot_qq(pv_lasso_CNRM_CM5, index = 5)
+plot_qq(pv_lasso_CNRM_CM5, index = 6)
 ```
 
 ```{r}
@@ -357,33 +303,43 @@ CanESM2 Model
 ```{r}
 CanESM2_mean = mean_his %>% 
   filter(gcm == "CanESM2") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 
 ```{r}
-X_CanESM2 = CanESM2_mean %>% 
+X_2023_CanESM2 = CanESM2_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
 ```{r}
-rownames(X_CanESM2) = CanESM2_mean$id
-common = intersect(rownames(X_CanESM2), rownames(Y_2023))
+rownames(X_2023_CanESM2) = CanESM2_mean$id
+common = intersect(rownames(X_2023_CanESM2), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_CanESM2 = X_CanESM2[common, , drop = FALSE]
+X_2023_CanESM2 = X_2023_CanESM2[common, , drop = FALSE]
 ```
 
 ```{r}
-pv_lasso_CanESM2 = run_lasso(X_CanESM2, Y_2023)
+pv_lasso_CanESM2 = run_lasso(X_2023_CanESM2, Y_2023)
+```
+
+```{r}
+#saveRDS(pv_lasso_CanESM2, "data/pv_lasso_CanESM2.rds")
+pv_lasso_CanESM2 = readRDS("data/pv_lasso_CanESM2.rds")
 ```
 
 ```{r}
 plot_qq(pv_lasso_CanESM2, index = 1)
 plot_qq(pv_lasso_CanESM2, index = 2)
 plot_qq(pv_lasso_CanESM2, index = 3)
+plot_qq(pv_lasso_CanESM2, index = 4)
+plot_qq(pv_lasso_CanESM2, index = 5)
+plot_qq(pv_lasso_CanESM2, index = 6)
 ```
 
 Based on the lambda values here, we can see that the associations for the precipitation variable in the CanESM2 model are less inflated (lower lambda) compared to the max temp and min temp variables, which show higher lambda values. 
@@ -416,9 +372,12 @@ MIROC5 Model
 ```{r}
 MIROC5_mean = mean_his %>% 
   filter(gcm == "MIROC5") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
+for genomic offset
 ```{r}
 MIROC5_fut_mean = mean_fut %>% 
   filter(gcm == "MIROC5") %>% 
@@ -427,13 +386,14 @@ MIROC5_fut_mean = mean_fut %>%
 
 
 ```{r}
-X_MIROC5 = MIROC5_mean %>% 
+X_2023_MIROC5 = MIROC5_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
+for genomic offset
 ```{r}
 X_MIROC5_fut = MIROC5_fut_mean %>% 
   ungroup() %>% 
@@ -444,12 +404,13 @@ X_MIROC5_fut = MIROC5_fut_mean %>%
 
 
 ```{r}
-rownames(X_MIROC5) = MIROC5_mean$id
-common = intersect(rownames(X_MIROC5), rownames(Y_2023))
+rownames(X_2023_MIROC5) = MIROC5_mean$id
+common = intersect(rownames(X_2023_MIROC5), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_MIROC5 = X_MIROC5[common, , drop = FALSE]
+X_2023_MIROC5 = X_2023_MIROC5[common, , drop = FALSE]
 ```
 
+for genomic offset
 ```{r}
 rownames(X_MIROC5_fut) = MIROC5_fut_mean$id
 X_MIROC5_fut = X_MIROC5_fut[common, , drop = FALSE]
@@ -457,14 +418,21 @@ X_MIROC5_fut = X_MIROC5_fut[common, , drop = FALSE]
 
 
 ```{r}
-pv_lasso_MIROC5 = run_lasso(X_MIROC5, Y_2023)
+pv_lasso_MIROC5 = run_lasso(X_2023_MIROC5, Y_2023)
 ```
 
+```{r}
+#saveRDS(pv_lasso_MIROC5, "data/pv_lasso_MIROC5.rds")
+pv_lasso_MIROC5 = readRDS("data/pv_lasso_MIROC5.rds")
+```
 
 ```{r}
 plot_qq(pv_lasso_MIROC5, index = 1)
 plot_qq(pv_lasso_MIROC5, index = 2)
 plot_qq(pv_lasso_MIROC5, index = 3)
+plot_qq(pv_lasso_MIROC5, index = 4)
+plot_qq(pv_lasso_MIROC5, index = 5)
+plot_qq(pv_lasso_MIROC5, index = 6)
 ```
 
 
@@ -496,7 +464,27 @@ Genomic Offset
 Now we will calculate the genetic offset. This is a measure of how much the genetic composition of a population would need to change to be optimally adapted to future environmental conditions. It is calculated by comparing the genetic values (based on allele frequencies and their effects) under current and future climates. A higher offset indicates a greater mismatch between current genetic composition and future optimal conditions, suggesting that the population may be at higher risk of maladaptation under climate change.
 
 
-MIROC5 Model
+Function for Genomic Offset calculation
+```{r}
+mean_his <- his_data %>% 
+  filter(dt >= "1990-12-31") %>% 
+  group_by(id, cvar, gcm) %>% 
+  summarise(mean_val = mean(val),
+            cv = sd(val)/mean(val)) %>% 
+  ungroup()
+
+```
+
+```{r}
+mean_fut <- fut_data %>% 
+  group_by(id, cvar, gcm, scenario) %>% 
+  summarise(mean_val = mean(val),
+            cv = sd(val)/mean(val)) %>% 
+  ungroup()
+```
+
+
+
 ```{r}
 calculate_genomic_offset = function(allele_freq, 
                                      lfmm_effects, 
@@ -624,9 +612,59 @@ calculate_genomic_offset = function(allele_freq,
 
 This will predict how genetically "out of sync" each population will be under future climate conditions based on the associations we found between SNPs and environmental variables. We can then compare this genomic offset to the magnitude of environmental change to see if populations experiencing greater environmental shifts also have higher genomic offsets, which would suggest they are at greater risk of maladaptation.
 
+
+1. MIROC5 Model
+```{r}
+MIROC5_mean = mean_his %>% 
+  filter(gcm == "MIROC5") %>% 
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
+
+```{r}
+MIROC5_fut_mean = mean_fut %>% 
+  filter(gcm == "MIROC5", scenario == "rcp85") %>% 
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
+
+
+```{r}
+X_2023_MIROC5 = MIROC5_mean %>% 
+  ungroup() %>% 
+  select(-id) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+X_MIROC5_fut = MIROC5_fut_mean %>% 
+  ungroup() %>% 
+  select(-id) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+
+```{r}
+rownames(X_2023_MIROC5) = MIROC5_mean$id
+common = intersect(rownames(X_2023_MIROC5), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_2023_MIROC5 = X_2023_MIROC5[common, , drop = FALSE]
+```
+
+```{r}
+rownames(X_MIROC5_fut) = MIROC5_fut_mean$id
+X_MIROC5_fut = X_MIROC5_fut[common, , drop = FALSE]
+```
+
+
+
 ```{r}
 allele_freq = Y_2023
-env_current = as.matrix(X_MIROC5)
+env_current = as.matrix(X_2023_MIROC5)
 rownames(env_current) = pops
 env_future = as.matrix(X_MIROC5_fut)
 rownames(env_future) = pops
@@ -682,25 +720,29 @@ National Parks FR and IH are high in genomic offset. IH has a higher environment
 Repeat the genomic offset models for the remaining global climate models. 
 
 
-CNRM_CM5 Model
+2. CNRM_CM5 Model
 
 ```{r}
 CNRM_CM5_mean = mean_his %>% 
   filter(gcm == "CNRM-CM5") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 ```{r}
 CNRM_CM5_fut_mean = mean_fut %>% 
-  filter(gcm == "CNRM-CM5") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  filter(gcm == "CNRM-CM5", scenario == "rcp85") %>% 
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 
 ```{r}
-X_CNRM_CM5 = CNRM_CM5_mean %>% 
+X_2023_CNRM_CM5 = CNRM_CM5_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
@@ -708,17 +750,17 @@ X_CNRM_CM5 = CNRM_CM5_mean %>%
 ```{r}
 X_CNRM_CM5_fut = CNRM_CM5_fut_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
 
 ```{r}
-rownames(X_CNRM_CM5) = CNRM_CM5_mean$id
-common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
+rownames(X_2023_CNRM_CM5) = CNRM_CM5_mean$id
+common = intersect(rownames(X_2023_CNRM_CM5), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_CNRM_CM5 = X_CNRM_CM5[common, , drop = FALSE]
+X_2023_CNRM_CM5 = X_2023_CNRM_CM5[common, , drop = FALSE]
 ```
 
 ```{r}
@@ -729,7 +771,7 @@ X_CNRM_CM5_fut = X_CNRM_CM5_fut[common, , drop = FALSE]
 
 ```{r}
 allele_freq = Y_2023
-env_current = as.matrix(X_CNRM_CM5)
+env_current = as.matrix(X_2023_CNRM_CM5)
 rownames(env_current) = pops
 env_future = as.matrix(X_CNRM_CM5_fut)
 rownames(env_future) = pops
@@ -781,26 +823,30 @@ print(p1)
 In this Genetic Offset model for the CNRM_CM5 climate model, we can see that the population in FR National Park has a high genomic offset despite having a relatively moderate environmental change magnitude. This suggests that the genetic composition of the FR population may be particularly mismatched to the future environmental conditions predicted by the CNRM_CM5 model, potentially putting it at greater risk of maladaptation. In contrast, the IH population has a lower genomic offset despite experiencing a higher environmental change magnitude, which could indicate that its genetic composition is more resilient or better suited to the predicted future conditions under this climate model. The SC population shows a lower genomic offset and lower environmental change magnitude, suggesting it may be less at risk of maladaptation under the CNRM_CM5 model compared to the other two populations.
 
 
-CanESM2 Model
 
+3. CanESM2 Model
 
 ```{r}
 CanESM2_mean = mean_his %>% 
   filter(gcm == "CanESM2") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 ```{r}
 CanESM2_fut_mean = mean_fut %>% 
-  filter(gcm == "CanESM2") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  filter(gcm == "CanESM2", scenario == "rcp85") %>% 
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 
 ```{r}
-X_CanESM2 = CanESM2_mean %>% 
+X_2023_CanESM2 = CanESM2_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
@@ -808,17 +854,17 @@ X_CanESM2 = CanESM2_mean %>%
 ```{r}
 X_CanESM2_fut = CanESM2_fut_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
 
 ```{r}
-rownames(X_CanESM2) = CanESM2_mean$id
-common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
+rownames(X_2023_CanESM2) = CanESM2_mean$id
+common = intersect(rownames(X_2023_CNRM_CM5), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_CanESM2 = X_CanESM2[common, , drop = FALSE]
+X_2023_CanESM2 = X_2023_CanESM2[common, , drop = FALSE]
 ```
 
 ```{r}
@@ -829,7 +875,7 @@ X_CanESM2_fut = X_CanESM2_fut[common, , drop = FALSE]
 
 ```{r}
 allele_freq = Y_2023
-env_current = as.matrix(X_CanESM2)
+env_current = as.matrix(X_2023_CanESM2)
 rownames(env_current) = pops
 env_future = as.matrix(X_CanESM2_fut)
 rownames(env_future) = pops
@@ -882,25 +928,29 @@ print(p1)
 For the CanESM2 Model, similar results are seen compared to the CNRM_CM5 model.
 
 
-HadGEM2-ES Model
+4. HadGEM2-ES Model
 
 ```{r}
 HadGEM2_mean = mean_his %>% 
   filter(gcm == "HadGEM2-ES") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 ```{r}
 HadGEM2_fut_mean = mean_fut %>% 
-  filter(gcm == "HadGEM2-ES") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+  filter(gcm == "HadGEM2-ES", scenario == "rcp85") %>% 
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
 
 
 ```{r}
-X_HadGEM2 = HadGEM2_mean %>% 
+X_2023_HadGEM2 = HadGEM2_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
@@ -908,17 +958,17 @@ X_HadGEM2 = HadGEM2_mean %>%
 ```{r}
 X_HadGEM2_fut = HadGEM2_fut_mean %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
 
 ```{r}
-rownames(X_HadGEM2) = HadGEM2_mean$id
-common = intersect(rownames(X_HadGEM2), rownames(Y_2023))
+rownames(X_2023_HadGEM2) = HadGEM2_mean$id
+common = intersect(rownames(X_2023_HadGEM2), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_HadGEM2 = X_HadGEM2[common, , drop = FALSE]
+X_2023_HadGEM2 = X_2023_HadGEM2[common, , drop = FALSE]
 ```
 
 ```{r}
@@ -929,7 +979,7 @@ X_HadGEM2_fut = X_HadGEM2_fut[common, , drop = FALSE]
 
 ```{r}
 allele_freq = Y_2023
-env_current = as.matrix(X_HadGEM2)
+env_current = as.matrix(X_2023_HadGEM2)
 rownames(env_current) = pops
 env_future = as.matrix(X_HadGEM2_fut)
 rownames(env_future) = pops
@@ -983,214 +1033,143 @@ Similar results of genomic offset is seen compared to the other three climate mo
 
 
 
-
-
-SNP_allele data
+Different analysis
 
 ```{r}
-geno_23 = read.delim("data/snp_allele_freq_mat.csv", header = TRUE, sep = "," )
-```
-CNRM_CM5 Model
-```{r}
-Y_2023 = as.matrix(geno_23[,-1])
-Y_2023 = t(Y_2023)
-```
-
-
-```{r}
-CNRM_CM5_mean = mean_his %>% 
-  filter(gcm == "CNRM-CM5") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
-```
-
-
-```{r}
-X_CNRM_CM5 = CNRM_CM5_mean %>% 
+gcm_mean_his <- his_data %>% 
+  filter(dt >= "1990-12-31") %>% 
+  group_by(id, cvar, dt) %>%
+  summarize(mean_val = mean(val)) %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  group_by(id, cvar) %>% 
+  summarise(mean_val_ = mean(mean_val),
+            cv = sd(mean_val)/mean(mean_val)) %>% 
+  ungroup()
+```
+
+```{r}
+gcm_mean_fut <- fut_data %>% 
+  group_by(id, cvar, dt, scenario) %>% 
+  summarise(mean_val = mean(val)) %>% 
+  ungroup() %>% 
+  group_by(id, cvar, scenario) %>%
+  summarise(mean_val_ = mean(mean_val),
+            cv = sd(mean_val)/mean(mean_val)) %>% 
+  ungroup()
+```
+Lasso
+
+```{r}
+gcm_mean = gcm_mean_his %>% 
+  pivot_longer(cols = mean_val_:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
+
+
+do this everytime running a model
+```{r}
+X_2023_gcm_mean = gcm_mean %>% 
+  ungroup() %>% 
+  select(-id) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+Aligning genotype and environment data to match the same populations (rows)
+X_2023 = environmental variable matrix, Y_2023 = genotype matrix
+```{r}
+rownames(X_2023_gcm_mean) = gcm_mean$id
+common = intersect(rownames(X_2023_gcm_mean), rownames(Y_2023))
+Y_2023 = Y_2023[common,]
+X_2023_gcm_mean = X_2023_gcm_mean[common, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_gcm_mean = run_lasso(X_2023_gcm_mean, Y_2023)
+```
+
+
+
+```{r}
+plot_qq(pv_lasso_gcm_mean, index = 1)
+plot_qq(pv_lasso_gcm_mean, index = 2)
+plot_qq(pv_lasso_gcm_mean, index = 3)
+plot_qq(pv_lasso_gcm_mean, index = 4)
+plot_qq(pv_lasso_gcm_mean, index = 5)
+plot_qq(pv_lasso_gcm_mean, index = 6)
+```
+
+Genomic Offset for mean of all models
+4. all models
+
+```{r}
+gcm_mean = mean_his %>% 
+  filter(dt >= "1990-12-31") %>% 
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
+
+
+```{r}
+gcm_mean_fut = mean_fut %>% 
+  filter(scenario == "rcp85") %>% 
+  pivot_longer(cols = mean_val:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
+
+
+```{r}
+X_2023_gcm = gcm_mean %>% 
+  ungroup() %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
 ```{r}
-rownames(X_CNRM_CM5) = CNRM_CM5_mean$id
-common = intersect(rownames(X_CNRM_CM5), rownames(Y_2023))
-Y_2023 = Y_2023[common,]
-X_CNRM_CM5 = X_CNRM_CM5[common, , drop = FALSE]
-```
-
-```{r}
-pv_lasso_CNRM_CM5 = run_lasso(X_CNRM_CM5, Y_2023)
-```
-
-```{r}
-plot_qq(pv_lasso_CNRM_CM5, index = 1)
-plot_qq(pv_lasso_CNRM_CM5, index = 2)
-plot_qq(pv_lasso_CNRM_CM5, index = 3)
-```
-
-```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pvalue[,3], calibrated.pvalue = pv_lasso_CNRM_CM5$calibrated.pvalue[,3]) |>
-separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
-filter(str_detect(chr, "Chr")) |>
-mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
-bp = as.numeric(bp))
-
-
-manhattan_WL2 = plot_manhattan(plot_data_2023,
-                        chr_col = "chr",
-                        pos_col = "bp",
-                        value_col = "calibrated.pvalue",
-                        transform = "neglog10",
-                        title = "WL2 2023",
-                        highlight_top_n = 20)
-
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
-```
-
-
-CanESM2 MODEL
-```{r}
-CanESM2_mean = mean_his %>% 
-  filter(gcm == "CanESM2") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
-```
-
-
-```{r}
-X_CanESM2 = CanESM2_mean %>% 
+X_gcm_fut = gcm_mean_fut %>% 
   ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
+  select(-id) %>% 
   as.matrix() %>% 
   scale()
 ```
 
+
 ```{r}
-rownames(X_CanESM2) = CanESM2_mean$id
-common = intersect(rownames(X_CanESM2), rownames(Y_2023))
+rownames(X_2023_gcm) = gcm_mean$id
+common = intersect(rownames(X_2023_gcm), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
-X_CanESM2 = X_CanESM2[common, , drop = FALSE]
+X_2023_gcm = X_2023_gcm[common, , drop = FALSE]
 ```
 
 ```{r}
-pv_lasso_CanESM2 = run_lasso(X_CanESM2, Y_2023)
-```
-
-slightly higher values 
-```{r}
-plot_qq(pv_lasso_CanESM2, index = 1)
-plot_qq(pv_lasso_CanESM2, index = 2)
-plot_qq(pv_lasso_CanESM2, index = 3)
-```
-```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pvalue[,3], calibrated.pvalue = pv_lasso_CanESM2$calibrated.pvalue[,3]) |>
-separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
-filter(str_detect(chr, "Chr")) |>
-mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
-bp = as.numeric(bp))
-
-
-manhattan_WL2 = plot_manhattan(plot_data_2023,
-                        chr_col = "chr",
-                        pos_col = "bp",
-                        value_col = "calibrated.pvalue",
-                        transform = "neglog10",
-                        title = "WL2 2023",
-                        highlight_top_n = 20)
-
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
-```
-
-
-
-MIROC Model
-```{r}
-MIROC5_mean = mean_his %>% 
-  filter(gcm == "MIROC5") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
+rownames(X_gcm_fut) = gcm_mean_fut$id
+X_gcm_fut = X_gcm_fut[common, , drop = FALSE]
 ```
 
 
 ```{r}
-X_MIROC5 = MIROC5_mean %>% 
-  ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
-  as.matrix() %>% 
-  scale()
+allele_freq = Y_2023
+env_current = as.matrix(X_2023_gcm)
+rownames(env_current) = pops
+env_future = as.matrix(X_gcm_fut)
+rownames(env_future) = pops
+lfmm_effects = pv_lasso_HadGEM2$B
+# lfmm_pvalues = pv_2023$pvalue
+pop_names = rownames(allele_freq)
+
+
+offset_all = calculate_genomic_offset(
+  allele_freq = allele_freq,
+  lfmm_effects = lfmm_effects,
+  env_current = env_current,
+  env_future = env_future,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
 ```
 
-```{r}
-rownames(X_MIROC5) = MIROC5_mean$id
-common = intersect(rownames(X_MIROC5), rownames(Y_2023))
-Y_2023 = Y_2023[common,]
-X_MIROC5 = X_MIROC5[common, , drop = FALSE]
-```
-
-```{r}
-pv_lasso_MIROC5 = run_lasso(X_MIROC5, Y_2023)
-```
-
-
-```{r}
-plot_qq(pv_lasso_MIROC5, index = 1)
-plot_qq(pv_lasso_MIROC5, index = 2)
-plot_qq(pv_lasso_MIROC5, index = 3)
-```
-
-```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_MIROC5$pvalue[,3], calibrated.pvalue = pv_lasso_MIROC5$calibrated.pvalue[,3]) |>
-separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
-filter(str_detect(chr, "Chr")) |>
-mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
-bp = as.numeric(bp))
-
-
-manhattan_WL2 = plot_manhattan(plot_data_2023,
-                        chr_col = "chr",
-                        pos_col = "bp",
-                        value_col = "calibrated.pvalue",
-                        transform = "neglog10",
-                        title = "WL2 2023",
-                        highlight_top_n = 20)
-
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
-```
-
-
-
-HadGEM2-ES Model
-```{r}
-HadGEM2_mean = mean_his %>% 
-  filter(gcm == "HadGEM2-ES") %>% 
-  pivot_wider(names_from = cvar, values_from = mean_val)
-```
-
-
-```{r}
-X_HadGEM2 = HadGEM2_mean %>% 
-  ungroup() %>% 
-  select(tasmax, tasmin, pr) %>% 
-  as.matrix() %>% 
-  scale()
-```
-
-```{r}
-rownames(X_HadGEM2) = HadGEM2_mean$id
-common = intersect(rownames(X_HadGEM2), rownames(Y_2023))
-Y_2023 = Y_2023[common,]
-X_HadGEM2 = X_HadGEM2[common, , drop = FALSE]
-```
-
-```{r}
-pv_lasso_HadGEM2 = run_lasso(X_HadGEM2, Y_2023)
-```
 
