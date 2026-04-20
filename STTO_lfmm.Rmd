@@ -20,16 +20,10 @@ source("manhattan_plot.R")
 ```
 
 ```{r}
-geno_23 = read.delim("data/merged_maf_common_WL2_2023.tsv", header = TRUE)
-
-# I'm going to simulate some climate data here. But ideally they should be real data
+# We would be using this new data and not the old one.
+geno_23 = read.delim("data/snp_allele_freq_mat.csv", header = TRUE, sep = ",")
 pops =colnames(geno_23)[-1]
 npop = length(pops)
-climate_data_sim = tibble(PopID = pops,
-max_temp = rnorm(npop),
-min_temp = rnorm(npop),
-cwd = rnorm(npop),
-ppt = rnorm(npop))
 ```
 
 
@@ -101,7 +95,7 @@ Aligning genotype and environment data to match the same populations (rows)
 X_2023 = environmental variable matrix, Y_2023 = genotype matrix
 ```{r}
 rownames(X_2023_HadGEM2) = HadGEM2_mean$id
-common = intersect(rownames(X_2023), rownames(Y_2023))
+common = intersect(rownames(X_2023_HadGEM2), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
 X_2023_HadGEM2 = X_2023_HadGEM2[common, , drop = FALSE]
 ```
@@ -125,7 +119,9 @@ run_lasso <- function(X=NULL,Y=NULL,K=5) {
                  X = X, 
                  lfmm = mod.lfmm_lasso, 
                  calibrate = "gif")
-   return(pv_lasso)
+  
+  # Made changes here. It now returns both the objects
+   return(list(pv = pv_lasso, mod = mod.lfmm_lasso))
 }
 ```
 
@@ -664,12 +660,14 @@ X_MIROC5_fut = X_MIROC5_fut[common, , drop = FALSE]
 
 
 ```{r}
+# Made changes here. You now have to extract the B matrix like so and use it downstream.
+B = pv_lasso_MIROC5$mod$B
 allele_freq = Y_2023
 env_current = as.matrix(X_2023_MIROC5)
-rownames(env_current) = pops
+#rownames(env_current) = pops
 env_future = as.matrix(X_MIROC5_fut)
-rownames(env_future) = pops
-lfmm_effects = pv_lasso_MIROC5$B
+#rownames(env_future) = pops
+lfmm_effects = B
 # lfmm_pvalues = pv_2023$pvalue
 pop_names = rownames(allele_freq)
 
@@ -1084,7 +1082,7 @@ X_2023_gcm_mean = gcm_mean %>%
 Aligning genotype and environment data to match the same populations (rows)
 X_2023 = environmental variable matrix, Y_2023 = genotype matrix
 ```{r}
-#rownames(X_2023_gcm_mean) = gcm_mean$id
+rownames(X_2023_gcm_mean) = gcm_mean$id
 common = intersect(rownames(X_2023_gcm_mean), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
 X_2023_gcm_mean = X_2023_gcm_mean[common, , drop = FALSE]
@@ -1126,12 +1124,14 @@ X_gcm_fut = X_gcm_fut[common, , drop = FALSE]
 
 
 ```{r}
+# Extract B here
+B = pv_lasso_gcm_mean$mod$B
 allele_freq = Y_2023
 env_current = as.matrix(X_2023_gcm_mean)
-rownames(env_current) = pops
+#rownames(env_current) = rownames(X_2023_gcm_mean)
 env_future = as.matrix(X_gcm_fut)
-rownames(env_future) = pops
-lfmm_effects = pv_lasso_gcm_mean$B
+#rownames(env_future) = rownames(X_gcm_fut)
+lfmm_effects = B
 # lfmm_pvalues = pv_2023$pvalue
 pop_names = rownames(allele_freq)
 
@@ -1145,6 +1145,7 @@ offset_all_gcm_mean = calculate_genomic_offset(
   method = "euclidean"
 )
 ```
+
 
 ```{r}
 results_df <- data.frame(
