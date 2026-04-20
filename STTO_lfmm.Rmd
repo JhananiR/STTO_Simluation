@@ -1032,7 +1032,7 @@ print(p1)
 
 Similar results of genomic offset is seen compared to the other three climate models. 
 
-
+First we match the ID's form the observed allele frequency data to the historical climate. Then we perform the lasso calculation to see how the environmental variables and their related SNPs are associated with genetic variation in the current climate. Finally, we calculate the genomic offset by comparing the genetic values under current and future climates based on the associations found in the lasso model. The beta matrix gives us the snp effects for each environmental variable and we can use this to calculate the genetic values for each population under current and future conditions, and then compute the genomic offset as the distance between these genetic values.
 
 Different analysis
 
@@ -1050,15 +1050,19 @@ gcm_mean_his <- his_data %>%
 
 ```{r}
 gcm_mean_fut <- fut_data %>% 
-  group_by(id, cvar, dt, scenario) %>% 
+  filter(scenario == "rcp85") %>%
+  group_by(id, cvar, dt) %>% 
   summarise(mean_val = mean(val)) %>% 
   ungroup() %>% 
-  group_by(id, cvar, scenario) %>%
+  group_by(id, cvar) %>%
   summarise(mean_val_ = mean(mean_val),
             cv = sd(mean_val)/mean(mean_val)) %>% 
-  ungroup()
+  ungroup() %>% 
+  pivot_longer(cols = mean_val_:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
 ```
-Lasso
+What the Lasso basically does it that it identifies which of the environmental variables (and their associated SNPs) are most strongly associated with genetic variation in the current climate. Then, when we calculate genomic offset, we are essentially asking: "Given the associations we found between SNPs and environmental variables under current conditions, how much would the genetic composition of each population need to change to be optimally adapted to the future conditions predicted by each climate model?"
 
 ```{r}
 gcm_mean = gcm_mean_his %>% 
@@ -1080,7 +1084,7 @@ X_2023_gcm_mean = gcm_mean %>%
 Aligning genotype and environment data to match the same populations (rows)
 X_2023 = environmental variable matrix, Y_2023 = genotype matrix
 ```{r}
-rownames(X_2023_gcm_mean) = gcm_mean$id
+#rownames(X_2023_gcm_mean) = gcm_mean$id
 common = intersect(rownames(X_2023_gcm_mean), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
 X_2023_gcm_mean = X_2023_gcm_mean[common, , drop = FALSE]
@@ -1104,31 +1108,7 @@ plot_qq(pv_lasso_gcm_mean, index = 6)
 Genomic Offset for mean of all models
 4. all models
 
-```{r}
-gcm_mean = mean_his %>% 
-  filter(dt >= "1990-12-31") %>% 
-  pivot_longer(cols = mean_val:cv) %>% 
-  unite(name, cvar:name) %>% 
-  pivot_wider(names_from = name, values_from = value)
-```
 
-
-```{r}
-gcm_mean_fut = mean_fut %>% 
-  filter(scenario == "rcp85") %>% 
-  pivot_longer(cols = mean_val:cv) %>% 
-  unite(name, cvar:name) %>% 
-  pivot_wider(names_from = name, values_from = value)
-```
-
-
-```{r}
-X_2023_gcm = gcm_mean %>% 
-  ungroup() %>% 
-  select(-id) %>% 
-  as.matrix() %>% 
-  scale()
-```
 
 ```{r}
 X_gcm_fut = gcm_mean_fut %>% 
@@ -1140,13 +1120,6 @@ X_gcm_fut = gcm_mean_fut %>%
 
 
 ```{r}
-rownames(X_2023_gcm) = gcm_mean$id
-common = intersect(rownames(X_2023_gcm), rownames(Y_2023))
-Y_2023 = Y_2023[common,]
-X_2023_gcm = X_2023_gcm[common, , drop = FALSE]
-```
-
-```{r}
 rownames(X_gcm_fut) = gcm_mean_fut$id
 X_gcm_fut = X_gcm_fut[common, , drop = FALSE]
 ```
@@ -1154,7 +1127,7 @@ X_gcm_fut = X_gcm_fut[common, , drop = FALSE]
 
 ```{r}
 allele_freq = Y_2023
-env_current = as.matrix(X_2023_gcm)
+env_current = as.matrix(X_2023_gcm_mean)
 rownames(env_current) = pops
 env_future = as.matrix(X_gcm_fut)
 rownames(env_future) = pops
@@ -1163,7 +1136,7 @@ lfmm_effects = pv_lasso_gcm_mean$B
 pop_names = rownames(allele_freq)
 
 
-offset_all = calculate_genomic_offset(
+offset_all_gcm_mean = calculate_genomic_offset(
   allele_freq = allele_freq,
   lfmm_effects = lfmm_effects,
   env_current = env_current,
@@ -1173,4 +1146,33 @@ offset_all = calculate_genomic_offset(
 )
 ```
 
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all_gcm_mean$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
+  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
 
+```{r}
+p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change - HadGEM2-ES Model"
+  )
+print(p1)
+```
