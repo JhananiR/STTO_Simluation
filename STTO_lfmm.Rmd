@@ -58,6 +58,7 @@ mean_his <- his_data %>%
   ungroup()
 
 ```
+
 ```{r}
 write_csv(mean_his, "data/mean_historical_climate.csv")
 ```
@@ -65,9 +66,7 @@ write_csv(mean_his, "data/mean_historical_climate.csv")
 
 
 
-HadGEM2-ES Model
-
-
+1. HadGEM2-ES Model
 ```{r}
 HadGEM2_mean = mean_his %>% 
   filter(gcm == "HadGEM2-ES") %>% 
@@ -227,7 +226,7 @@ Similar patterns are observed in the other climate models, with precipitation co
 Repeating the above processes for all the other three global climate models. 
 
 
-CNRM_CM5 Model
+2. CNRM_CM5 Model
 ```{r}
 CNRM_CM5_mean = mean_his %>% 
   filter(gcm == "CNRM-CM5") %>% 
@@ -295,8 +294,7 @@ print(manhattan_WL2)
 
 
 
-CanESM2 Model
-
+3. CanESM2 Model
 ```{r}
 CanESM2_mean = mean_his %>% 
   filter(gcm == "CanESM2") %>% 
@@ -364,8 +362,8 @@ print(manhattan_WL2)
 ```
 
 
-MIROC5 Model
 
+4. MIROC5 Model
 ```{r}
 MIROC5_mean = mean_his %>% 
   filter(gcm == "MIROC5") %>% 
@@ -1032,8 +1030,11 @@ Similar results of genomic offset is seen compared to the other three climate mo
 
 First we match the ID's form the observed allele frequency data to the historical climate. Then we perform the lasso calculation to see how the environmental variables and their related SNPs are associated with genetic variation in the current climate. Finally, we calculate the genomic offset by comparing the genetic values under current and future climates based on the associations found in the lasso model. The beta matrix gives us the snp effects for each environmental variable and we can use this to calculate the genetic values for each population under current and future conditions, and then compute the genomic offset as the distance between these genetic values.
 
-Different analysis
 
+
+GENOMIC OFFSET for MEAN of ALL MODELS
+
+Historical Mean Climate Data
 ```{r}
 gcm_mean_his <- his_data %>% 
   filter(dt >= "1990-12-31") %>% 
@@ -1046,20 +1047,6 @@ gcm_mean_his <- his_data %>%
   ungroup()
 ```
 
-```{r}
-gcm_mean_fut <- fut_data %>% 
-  filter(scenario == "rcp85") %>%
-  group_by(id, cvar, dt) %>% 
-  summarise(mean_val = mean(val)) %>% 
-  ungroup() %>% 
-  group_by(id, cvar) %>%
-  summarise(mean_val_ = mean(mean_val),
-            cv = sd(mean_val)/mean(mean_val)) %>% 
-  ungroup() %>% 
-  pivot_longer(cols = mean_val_:cv) %>% 
-  unite(name, cvar:name) %>% 
-  pivot_wider(names_from = name, values_from = value)
-```
 What the Lasso basically does it that it identifies which of the environmental variables (and their associated SNPs) are most strongly associated with genetic variation in the current climate. Then, when we calculate genomic offset, we are essentially asking: "Given the associations we found between SNPs and environmental variables under current conditions, how much would the genetic composition of each population need to change to be optimally adapted to the future conditions predicted by each climate model?"
 
 ```{r}
@@ -1093,7 +1080,6 @@ pv_lasso_gcm_mean = run_lasso(X_2023_gcm_mean, Y_2023)
 ```
 
 
-
 ```{r}
 plot_qq(pv_lasso_gcm_mean, index = 1)
 plot_qq(pv_lasso_gcm_mean, index = 2)
@@ -1103,9 +1089,23 @@ plot_qq(pv_lasso_gcm_mean, index = 5)
 plot_qq(pv_lasso_gcm_mean, index = 6)
 ```
 
-Genomic Offset for mean of all models
-4. all models
 
+
+Future mean Climate Data
+```{r}
+gcm_mean_fut <- fut_data %>% 
+  filter(scenario == "rcp85") %>%
+  group_by(id, cvar, dt) %>% 
+  summarise(mean_val = mean(val)) %>% 
+  ungroup() %>% 
+  group_by(id, cvar) %>%
+  summarise(mean_val_ = mean(mean_val),
+            cv = sd(mean_val)/mean(mean_val)) %>% 
+  ungroup() %>% 
+  pivot_longer(cols = mean_val_:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
 
 
 ```{r}
