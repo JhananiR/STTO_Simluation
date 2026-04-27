@@ -38,6 +38,8 @@ fut_data = read.delim("data/Future_climate_ppt_caladapt_2040_2070.tsv", header =
 ```
 
 
+
+
 ID is the name of the national park. Cvar is the climate variable (tasmax, tasmin, pr). GCM is the global climate model (HadGEM2-ES, CNRM-CM5, CanESM2, MIROC5). Val is the value of the climate variable for that park and that model.
 ```{r}
 mean_fut <- fut_data %>% 
@@ -190,9 +192,6 @@ plot_qq(pv_lasso_HadGEM2, index = 5)
 plot_qq(pv_lasso_HadGEM2, index = 6)
 ```
 
-
-
-
 Looking at the qq plots, it can be seen that the precipitation variable is the one with a lower lambda value, which suggests that the associations between SNPs and precipitation are less inflated and potentially more reliable than those for max temp and min temp. This could indicate that precipitation is a stronger driver of local adaptation in these populations compared to temperature variables, or it could reflect differences in the underlying genetic architecture of adaptation to these environmental factors. The max temp and min temp variables show higher lambda values, suggesting that there may be more confounding factors or population structure influencing the associations for these variables, which could lead to more false positives if not properly accounted for.
 
 
@@ -211,7 +210,8 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
                         title = "WL2 2023",
-                        highlight_top_n = 20)
+                        highlight_top_n = 20, 
+                        title = "HadGEM2-ES Model - Precipitation")
 
 print(manhattan_WL2)
 
@@ -284,7 +284,8 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
                         title = "WL2 2023",
-                        highlight_top_n = 20)
+                        highlight_top_n = 20, 
+                        title = "CNRM-CM5 Model - Precipitation")
 
 print(manhattan_WL2)
 
@@ -353,7 +354,8 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
                         title = "WL2 2023",
-                        highlight_top_n = 20)
+                        highlight_top_n = 20,
+                        title = "CanESM2 Model - Precipitation")
 
 print(manhattan_WL2)
 
@@ -445,7 +447,8 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
                         title = "WL2 2023",
-                        highlight_top_n = 20)
+                        highlight_top_n = 20,
+                        title = "MIROC5 Model - Precipitation")
 
 print(manhattan_WL2)
 
@@ -1047,7 +1050,6 @@ gcm_mean_his <- his_data %>%
   ungroup()
 ```
 
-What the Lasso basically does it that it identifies which of the environmental variables (and their associated SNPs) are most strongly associated with genetic variation in the current climate. Then, when we calculate genomic offset, we are essentially asking: "Given the associations we found between SNPs and environmental variables under current conditions, how much would the genetic composition of each population need to change to be optimally adapted to the future conditions predicted by each climate model?"
 
 ```{r}
 gcm_mean = gcm_mean_his %>% 
