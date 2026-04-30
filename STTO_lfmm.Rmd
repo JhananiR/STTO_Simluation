@@ -1083,13 +1083,160 @@ pv_lasso_gcm_mean = run_lasso(X_2023_gcm_mean, Y_2023)
 
 
 ```{r}
-plot_qq(pv_lasso_gcm_mean, index = 1)
-plot_qq(pv_lasso_gcm_mean, index = 2)
-plot_qq(pv_lasso_gcm_mean, index = 3)
-plot_qq(pv_lasso_gcm_mean, index = 4)
-plot_qq(pv_lasso_gcm_mean, index = 5)
-plot_qq(pv_lasso_gcm_mean, index = 6)
+plot_qq(pv_lasso_gcm_mean$pv, index = 1)
+plot_qq(pv_lasso_gcm_mean$pv, index = 2)
+plot_qq(pv_lasso_gcm_mean$pv, index = 3)
+plot_qq(pv_lasso_gcm_mean$pv, index = 4)
+plot_qq(pv_lasso_gcm_mean$pv, index = 5)
+plot_qq(pv_lasso_gcm_mean$pv, index = 6)
 ```
+
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,1], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,1]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "p_val",
+                        transform = "neglog10",
+                        title = "Mean Precipitation of All Models",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+each of the dots are one loci. association between the environmental variable and the allele frequency at one loci. highest dot is the lowest p-value showing the strong significance in association 
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,2], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,2]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "p_val",
+                        transform = "neglog10",
+                        title = "Relative Variation (cv) Precipitation of All Models",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,3], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "p_val",
+                        transform = "neglog10",
+                        title = "Mean of Max Temperature of All Models",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,4], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,4]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "p_val",
+                        transform = "neglog10",
+                        title = "Relative Variation (cv) Max Temperature of All Models",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,5], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,5]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "p_val",
+                        transform = "neglog10",
+                        title = "Mean of Min Temperature of All Models",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,6], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,6]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "p_val",
+                        transform = "neglog10",
+                        title = "Relative Variation (cv) Min Temperature of All Models",
+                        highlight_top_n = 20)
+
+print(manhattan_WL2)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+
+
+
+
+
+
+
 
 
 
@@ -1122,6 +1269,11 @@ X_gcm_fut = gcm_mean_fut %>%
 ```{r}
 rownames(X_gcm_fut) = gcm_mean_fut$id
 X_gcm_fut = X_gcm_fut[common, , drop = FALSE]
+```
+
+qqplots
+```{r}
+pv_lasso_gcm_fut = run_lasso(X_gcm_fut, Y_2023)
 ```
 
 
