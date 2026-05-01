@@ -64,9 +64,14 @@ comparison_plot <-
 
 comparison_plot
 ```
-certain populations have high leverage which includes the FR, SC, IH, WL2. even with the modest environmental change, show high offset values. remove these populations during initial lfmm run and project it again for the offset calculation: B matrix: weighted allele frequency matrix using the B matrix and project future climate onto the weighted frequency matrix. project it back to the future climate which never saw the left out population
-runn lfmm on the orginal allele frequency matrix exclude lv populations
-do admixture  = new allele frequency matrix with mixed lassen national park and use that for the weighted allele frequency matrix
+certain populations have high leverage which includes the FR, SC, IH, WL2. even with the modest environmental change, show high offset values. remove these populations during initial lfmm run and project it again for the offset calculation: 
+
+B matrix: weighted allele frequency matrix(strength of the association between climate and snps) to capture the climate-allele relationship and project future climate data which never saw the left out population. predict the offset for the left out populations
+
+runn lfmm on the orginal allele frequency matrix exclude lassen populations
+
+do admixture  = new allele frequency matrix with lassen populations which will account for the mixed ancestry and use that for the weighted allele frequency matrix which is the B matrix and then project it to the future climate to get the predicted offset for the left out populations.
+
 ```{r}
 run_lasso <- function(X=NULL,Y=NULL,K=5) {
    mod.lfmm_lasso <- lfmm_lasso(Y = Y, 

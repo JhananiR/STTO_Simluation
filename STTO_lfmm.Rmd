@@ -1235,11 +1235,6 @@ print(manhattan_WL2)
 
 
 
-
-
-
-
-
 Future mean Climate Data
 ```{r}
 gcm_mean_fut <- fut_data %>% 
@@ -1327,7 +1322,7 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
   labs(
     x = "Environmental Change Magnitude",
     y = "Genomic Offset (ALL SNPs)",
-    title = "Offset vs Environmental Change - HadGEM2-ES Model"
+    title = "Offset vs Environmental Change - Mean of All Models"
   )
 print(p1)
 ```
