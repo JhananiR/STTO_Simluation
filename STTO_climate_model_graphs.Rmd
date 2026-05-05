@@ -1,0 +1,412 @@
+---
+title: "climate_model_graphs"
+output: html_document
+date: "2026-05-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load libraries
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(ggrepel)
+library(patchwork)
+library(lfmm)
+source("manhattan_plot.R")
+library(ggplot2)
+```
+
+
+
+```{r}
+# We would be using this new data and not the old one.
+geno_23 = read.delim("data/snp_allele_freq_mat.csv", header = TRUE, sep = ",")
+pops =colnames(geno_23)[-1]
+npop = length(pops)
+```
+
+
+Read historical data
+```{r}
+his_data = read.delim("data/Historical_climate_caladapt_1950_2004.tsv", header = TRUE)
+```
+
+Read Future Climate data
+```{r}
+fut_data = read.delim("data/Future_climate_ppt_caladapt_2040_2070.tsv", header = TRUE)
+```
+
+
+Comparing the range of mean environmental variables across all the populations in each different climate model using the HISTORICAL climate data.
+```{r}
+facet_graph <- 
+  his_data %>% 
+  filter(dt >= "1990-12-31",
+         cvar %in% c("tasmin", "tasmax", "pr"),
+         !id %in% c("UCD_Garden", "WL2_Garden")) %>% 
+  group_by(id, cvar, gcm) %>% 
+  summarise(mean_val = mean(val),
+            cv = sd(val)/mean(val),
+            sd = sd(val),
+            .groups = "drop") %>% 
+  pivot_wider(
+    names_from = cvar,
+    values_from = c(mean_val, sd, cv))
+```
+
+
+GGPLOTS
+
+Mean Precipitation
+```{r}
+p1 = 
+facet_graph %>% 
+  ggplot(aes(x = id, y = mean_val_pr))+
+  geom_crossbar(aes(ymin = mean_val_pr, ymax = mean_val_pr))+
+  geom_errorbar(aes(ymin = mean_val_pr - sd_pr, ymax = mean_val_pr + sd_pr), width = 0.6)+
+  facet_wrap(~gcm)+
+  labs(title = "Mean Precipitation by Climate Model - Historical", x = "Population", y = "Mean Precipitation")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p1)
+```
+```{r}
+ggsave("../Figures/mean_pr.png", plot = p1, width = 10, height = 6)
+```
+
+
+CV Precipitation
+```{r}
+p2 = 
+facet_graph %>% 
+  ggplot(aes(x = id, y = cv_pr))+
+  geom_crossbar(aes(ymin = cv_pr, ymax = cv_pr))+
+  facet_wrap(~gcm)+
+  labs(title = "CV Precipitation by Climate Model - Historical", x = "Population", y = "CV Precipitation")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p2)
+```
+```{r}
+ggsave("../Figures/cv_pr.png", plot = p2, width = 10, height = 6)
+```
+
+Mean Min Temp
+```{r}
+p3 = 
+facet_graph %>% 
+  ggplot(aes(x = id, y = mean_val_tasmin))+
+  geom_crossbar(aes(ymin = mean_val_tasmin, ymax = mean_val_tasmin))+
+  geom_errorbar(aes(ymin = mean_val_tasmin - sd_tasmin, ymax = mean_val_tasmin + sd_tasmin), width = 0.6)+
+  facet_wrap(~gcm)+
+  labs(title = "Mean Minimum Temperature by Climate Model - Historical", x = "Population", y = "Mean Min Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p3)
+```
+```{r}
+ggsave("../Figures/mean_min_temp.png", plot = p3, width = 10, height = 6)
+```
+
+CV Minimum Temperature
+```{r}
+p4 = 
+facet_graph %>% 
+  ggplot(aes(x = id, y = cv_tasmin))+
+  geom_crossbar(aes(ymin = cv_tasmin, ymax = cv_tasmin))+
+  facet_wrap(~gcm)+
+  labs(title = "CV Minimum Temperature by Climate Model - Historical", x = "Population", y = "CV Min Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p4)
+```
+```{r}
+ggsave("../Figures/cv_min_temp.png", plot = p4, width = 10, height = 6)
+```
+
+Mean Max Temp
+```{r}
+p5 = 
+facet_graph %>% 
+  ggplot(aes(x = id, y = mean_val_tasmax))+
+  geom_crossbar(aes(ymin = mean_val_tasmax, ymax = mean_val_tasmax))+
+  geom_errorbar(aes(ymin = mean_val_tasmax - sd_tasmax, ymax = mean_val_tasmax + sd_tasmax), width = 0.6)+
+  facet_wrap(~gcm)+
+  labs(title = "Mean Maximum Temperature by Climate Model - Historical", x = "Population", y = "Mean Max Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p5)
+```
+```{r}
+ggsave("../Figures/mean_max_temp.png", plot = p5, width = 10, height = 6)
+```
+
+CV Maximum Temperature
+```{r}
+p6 = 
+facet_graph %>% 
+  ggplot(aes(x = id, y = cv_tasmax))+
+  geom_crossbar(aes(ymin = cv_tasmax, ymax = cv_tasmax))+
+  facet_wrap(~gcm)+
+  labs(title = "CV Maximum Temperature by Climate Model - Historical", x = "Population", y = "CV Max Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p6)
+```
+```{r}
+ggsave("../Figures/cv_max_temp.png", plot = p6, width = 10, height = 6)
+```
+
+
+
+
+
+mean of all the models for each year and then mean of the period, then get sd of period - historical
+
+Mean of ALL Models - historical
+```{r}
+gcm_mean_graph <- his_data %>% 
+  filter(dt >= "1990-12-31",
+         cvar %in% c("tasmin", "tasmax", "pr"),
+         !id %in% c("UCD_Garden", "WL2_Garden")) %>% 
+  group_by(id, cvar, dt) %>%
+  summarize(mean_val = mean(val), .groups = "drop") %>% 
+  group_by(id, cvar) %>% 
+  summarise(mean_period = mean(mean_val),
+            cv = sd(mean_val)/mean(mean_val),
+            sd_period = sd(mean_val),
+            .groups = "drop") %>% 
+  pivot_wider(
+    names_from = cvar,
+    values_from = c(mean_period, sd_period, cv))
+```
+
+GGPLOT
+
+Mean Precipitation
+```{r}
+p7 = 
+ggplot(gcm_mean_graph, aes(x = id, y = mean_period_pr))+
+  geom_crossbar(aes(ymin = mean_period_pr, ymax = mean_period_pr))+
+  geom_errorbar(aes(ymin = mean_period_pr - sd_period_pr, ymax = mean_period_pr + sd_period_pr), width = 0.6)+
+  labs(title = "Mean Precipitation Across All Climate Models - Historical", x = "Population", y = "Mean Precipitation")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p7)
+```
+```{r}
+ggsave("../Figures/mean_pr_all.png", plot = p7, width = 10, height = 6)
+```
+
+Mean Minimum Temperature
+```{r}
+p8 = 
+ggplot(gcm_mean_graph, aes(x = id, y = mean_period_tasmin))+
+  geom_crossbar(aes(ymin = mean_period_tasmin, ymax = mean_period_tasmin))+
+  geom_errorbar(aes(ymin = mean_period_tasmin - sd_period_tasmin, ymax = mean_period_tasmin + sd_period_tasmin), width = 0.6)+
+  labs(title = "Mean Minimum Temperature Across All Climate Models - Historical", x = "Population", y = "Mean Min Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p8)
+```
+```{r}
+ggsave("../Figures/mean_min_temp_all.png", plot = p8, width = 10, height = 6)
+```
+
+Mean Maximum Temperature
+```{r}
+p9 = 
+ggplot(gcm_mean_graph, aes(x = id, y = mean_period_tasmax))+
+  geom_crossbar(aes(ymin = mean_period_tasmax, ymax = mean_period_tasmax))+
+  geom_errorbar(aes(ymin = mean_period_tasmax - sd_period_tasmax, ymax = mean_period_tasmax + sd_period_tasmax), width = 0.6)+
+  labs(title = "Mean Maximum Temperature Across All Climate Models - Historical", x = "Population", y = "Mean Max Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p9)
+```
+
+```{r}
+ggsave("../Figures/mean_max_temp_all.png", plot = p9, width = 10, height = 6)
+```
+
+
+
+
+
+FUTURE Climate Data
+```{r}
+facet_graph_fut <- 
+  fut_data %>% 
+  filter(scenario == "rcp85",
+         cvar %in% c("tasmin", "tasmax", "pr"),
+         !id %in% c("UCD_Garden", "WL2_Garden")) %>% 
+  group_by(id, cvar, gcm, scenario) %>% 
+  summarise(mean_val = mean(val),
+            cv = sd(val)/mean(val),
+            sd = sd(val),
+            .groups = "drop") %>% 
+  pivot_wider(
+    names_from = cvar,
+    values_from = c(mean_val, sd, cv))
+```
+
+Mean Precipitation
+```{r}
+p10 = 
+facet_graph_fut %>% 
+  ggplot(aes(x = id, y = mean_val_pr))+
+  geom_crossbar(aes(ymin = mean_val_pr, ymax = mean_val_pr))+
+  geom_errorbar(aes(ymin = mean_val_pr - sd_pr, ymax = mean_val_pr + sd_pr), width = 0.6)+
+  facet_wrap(~gcm)+
+  labs(title = "Mean Precipitation by Climate Model - Future(rcp85)", x = "Population", y = "Mean Precipitation")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p10)
+```
+
+```{r}
+ggsave("../Figures/fut_mean_pr.png", plot = p10, width = 10, height = 6)
+```
+
+
+CV Precipitation
+```{r}
+p11 = 
+facet_graph_fut %>% 
+  ggplot(aes(x = id, y = cv_pr))+
+  geom_crossbar(aes(ymin = cv_pr, ymax = cv_pr))+
+  facet_wrap(~gcm)+
+  labs(title = "CV Precipitation by Climate Model - Future(rcp85)", x = "Population", y = "CV Precipitation")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p11)
+```
+```{r}
+ggsave("../Figures/fut_cv_pr.png", plot = p11, width = 10, height = 6)
+```
+
+
+Mean Minimum Temperature
+```{r}
+p12 = 
+facet_graph_fut %>% 
+  ggplot(aes(x = id, y = mean_val_tasmin))+
+  geom_crossbar(aes(ymin = mean_val_tasmin, ymax = mean_val_tasmin))+
+  geom_errorbar(aes(ymin = mean_val_tasmin - sd_tasmin, ymax = mean_val_tasmin + sd_tasmin), width = 0.6)+
+  facet_wrap(~gcm)+
+  labs(title = "Mean Minimum Temperature by Climate Model - Future(rcp85)", x = "Population", y = "Mean Min Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p12)
+```
+```{r}
+ggsave("../Figures/fut_mean_min_temp.png", plot = p12, width = 10, height = 6)
+```
+
+
+CV Minimum Temperature
+```{r}
+p13 = 
+facet_graph_fut %>% 
+  ggplot(aes(x = id, y = cv_tasmin))+
+  geom_crossbar(aes(ymin = cv_tasmin, ymax = cv_tasmin))+
+  facet_wrap(~gcm)+
+  labs(title = "CV Minimum Temperature by Climate Model - Future(rcp85)", x = "Population", y = "CV Min Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p13)
+```
+```{r}
+ggsave("../Figures/fut_cv_min_temp.png", plot = p13, width = 10, height = 6)
+```
+
+Mean Max Temp
+```{r}
+p14 = 
+facet_graph_fut %>% 
+  ggplot(aes(x = id, y = mean_val_tasmax))+
+  geom_crossbar(aes(ymin = mean_val_tasmax, ymax = mean_val_tasmax))+
+  geom_errorbar(aes(ymin = mean_val_tasmax - sd_tasmax, ymax = mean_val_tasmax + sd_tasmax), width = 0.6)+
+  facet_wrap(~gcm)+
+  labs(title = "Mean Maximum Temperature by Climate Model - Future(rcp85)", x = "Population", y = "Mean Max Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p14)
+```
+```{r}
+ggsave("../Figures/fut_mean_max_temp.png", plot = p14, width = 10, height = 6)
+```
+
+CV Maximum Temperature
+```{r}
+p15 = 
+facet_graph_fut %>% 
+  ggplot(aes(x = id, y = cv_tasmax))+
+  geom_crossbar(aes(ymin = cv_tasmax, ymax = cv_tasmax))+
+  facet_wrap(~gcm)+
+  labs(title = "CV Maximum Temperature by Climate Model - Future(rcp85)", x = "Population", y = "CV Max Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p15)
+```
+```{r}
+ggsave("../Figures/fut_cv_max_temp.png", plot = p15, width = 10, height = 6)
+```
+
+
+
+MEAN of ALL models - FUTURE climate data
+```{r}
+gcm_mean_fut_graph <- fut_data %>% 
+  filter(scenario == "rcp85",
+         cvar %in% c("tasmin", "tasmax", "pr"),
+         !id %in% c("UCD_Garden", "WL2_Garden")) %>%
+  group_by(id, cvar, dt) %>% 
+  summarize(mean_val = mean(val), .groups = "drop") %>% 
+  group_by(id, cvar) %>% 
+  summarise(mean_period = mean(mean_val),
+            cv = sd(mean_val)/mean(mean_val),
+            sd_period = sd(mean_val),
+            .groups = "drop") %>% 
+  pivot_wider(
+    names_from = cvar,
+    values_from = c(mean_period, sd_period, cv))
+```
+
+GGPLOT
+
+Mean Precipitation
+```{r}
+p16 = 
+ggplot(gcm_mean_fut_graph, aes(x = id, y = mean_period_pr))+
+  geom_crossbar(aes(ymin = mean_period_pr, ymax = mean_period_pr))+
+  geom_errorbar(aes(ymin = mean_period_pr - sd_period_pr, ymax = mean_period_pr + sd_period_pr), width = 0.6)+
+  labs(title = "Mean Precipitation Across All Climate Models - Future(rcp85)", x = "Population", y = "Mean Precipitation")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p16)
+```
+```{r}
+ggsave("../Figures/fut_mean_pr_all.png", plot = p16, width = 10, height = 6)
+```
+
+Mean Minimum Temperature
+```{r}
+p17 = 
+ggplot(gcm_mean_fut_graph, aes(x = id, y = mean_period_tasmin))+
+  geom_crossbar(aes(ymin = mean_period_tasmin, ymax = mean_period_tasmin))+
+  geom_errorbar(aes(ymin = mean_period_tasmin - sd_period_tasmin, ymax = mean_period_tasmin + sd_period_tasmin), width = 0.6)+
+  labs(title = "Mean Minimum Temperature Across All Climate Models - Future(rcp85)", x = "Population", y = "Mean Min Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p17)
+```
+```{r}
+ggsave("../Figures/fut_mean_min_temp_all.png", plot = p17, width = 10, height = 6)
+```
+
+Mean Maximum Temperature
+```{r}
+p18 = 
+ggplot(gcm_mean_graph, aes(x = id, y = mean_period_tasmax))+
+  geom_crossbar(aes(ymin = mean_period_tasmax, ymax = mean_period_tasmax))+
+  geom_errorbar(aes(ymin = mean_period_tasmax - sd_period_tasmax, ymax = mean_period_tasmax + sd_period_tasmax), width = 0.6)+
+  labs(title = "Mean Maximum Temperature Across All Climate Models - Future(rcp85)", x = "Population", y = "Mean Max Temp")+
+  theme(axis.text.x = element_text(angle = 65, hjust=1))
+print(p18)
+```
+
+```{r}
+ggsave("../Figures/fut_mean_max_temp_all.png", plot = p18, width = 10, height = 6)
+```
+
+
+
+
+
