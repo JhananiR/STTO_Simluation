@@ -184,40 +184,107 @@ return(p)
 ```
 
 ```{r}
-plot_qq(pv_lasso_HadGEM2, index = 1)
-plot_qq(pv_lasso_HadGEM2, index = 2)
-plot_qq(pv_lasso_HadGEM2, index = 3)
-plot_qq(pv_lasso_HadGEM2, index = 4)
-plot_qq(pv_lasso_HadGEM2, index = 5)
-plot_qq(pv_lasso_HadGEM2, index = 6)
+p19 = plot_qq(pv_lasso_HadGEM2$pv, index = 1) + ggtitle("PV Lasso HadGEM2 - Mean Precipitation")
+p20 = plot_qq(pv_lasso_HadGEM2$pv, index = 2) + ggtitle("PV Lasso HadGEM2 - CV Precipitation")
+p21 = plot_qq(pv_lasso_HadGEM2$pv, index = 3) + ggtitle("PV Lasso HadGEM2 - Mean Maximum Temperature")
+p22 = plot_qq(pv_lasso_HadGEM2$pv, index = 4) + ggtitle("PV Lasso HadGEM2 - CV Maximum Temperature")
+p23 = plot_qq(pv_lasso_HadGEM2$pv, index = 5) + ggtitle("PV Lasso HadGEM2 - Mean Minimum Temperature")
+p24 = plot_qq(pv_lasso_HadGEM2$pv, index = 6) + ggtitle("PV Lasso HadGEM2 - CV Minimum Temperature")
+print(p19)
+print(p20)
+print(p21)
+print(p22)
+print(p23)
+print(p24)
 ```
+
+```{r}
+ggsave("../Figures/pv_lasso_mean_pr_HadGEM2.png", plot = p19, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_pr_HadGEM2.png", plot = p20, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmax_HadGEM2.png", plot = p21, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmax_HadGEM2.png", plot = p22, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmin_HadGEM2.png", plot = p23, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmin_HadGEM2.png", plot = p24, width = 10, height = 6)
+```
+
 
 Looking at the qq plots, it can be seen that the precipitation variable is the one with a lower lambda value, which suggests that the associations between SNPs and precipitation are less inflated and potentially more reliable than those for max temp and min temp. This could indicate that precipitation is a stronger driver of local adaptation in these populations compared to temperature variables, or it could reflect differences in the underlying genetic architecture of adaptation to these environmental factors. The max temp and min temp variables show higher lambda values, suggesting that there may be more confounding factors or population structure influencing the associations for these variables, which could lead to more false positives if not properly accounted for.
 
 
 Manhattan plots help see which SNPs are most strongly associated with the environment and where they are located in the genome. 
 ```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_HadGEM2$pvalue[,1], calibrated.pvalue = pv_lasso_HadGEM2$calibrated.pvalue[,1]) |>
-separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_HadGEM2$pv$pvalue[,1], calibrated.pvalue = pv_lasso_HadGEM2$pv$calibrated.pvalue[,1]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
 filter(str_detect(chr, "Chr")) |>
 mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p62 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
-                        title = "WL2 2023",
                         highlight_top_n = 20, 
                         title = "HadGEM2-ES Model - Precipitation")
 
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+print(p62)
 ```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_HadGEM2_pr.png", plot = p62, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_HadGEM2$pv$pvalue[,2], calibrated.pvalue = pv_lasso_HadGEM2$pv$calibrated.pvalue[,2]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p63 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "HadGEM2-ES Model - Maximum Temperature")
+
+print(p63)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_HadGEM2_max_temp.png", plot = p63, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_HadGEM2$pv$pvalue[,3], calibrated.pvalue = pv_lasso_HadGEM2$pv$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p64 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "HadGEM2-ES Model - Minimum Temperature")
+
+print(p64)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_HadGEM2_min_temp.png", plot = p64, width = 12, height = 6, dpi = 300)
+```
+
+
+
+
 For the HadGEM2-ES model, the Manhattan plot for the precipitation variable shows several SNPs with strong associations (low p-values) that stand out above the rest, indicating potential candidate loci for local adaptation to precipitation. In contrast, the max temp and min temp variables show fewer significant associations, and the points are more scattered, suggesting weaker or more diffuse signals of adaptation to temperature. This pattern reinforces the idea that precipitation may be a more important selective pressure driving local adaptation in these populations compared to temperature variables.
 
 Similar patterns are observed in the other climate models, with precipitation consistently showing stronger and more significant associations with SNPs compared to temperature variables. This suggests that across different climate models, precipitation may be a key environmental factor influencing local adaptation in these populations, while temperature variables may have a more complex or less direct relationship with genetic variation.
@@ -262,12 +329,27 @@ pv_lasso_CNRM_CM5 = readRDS("data/pv_lasso_CNRM_CM5.rds")
 ```
 
 ```{r}
-plot_qq(pv_lasso_CNRM_CM5, index = 1)
-plot_qq(pv_lasso_CNRM_CM5, index = 2)
-plot_qq(pv_lasso_CNRM_CM5, index = 3)
-plot_qq(pv_lasso_CNRM_CM5, index = 4)
-plot_qq(pv_lasso_CNRM_CM5, index = 5)
-plot_qq(pv_lasso_CNRM_CM5, index = 6)
+p44 = plot_qq(pv_lasso_CNRM_CM5$pv, index = 1) + ggtitle("PV Lasso CNRM-CM5 - Mean Precipitation")
+p45 = plot_qq(pv_lasso_CNRM_CM5$pv, index = 2) + ggtitle("PV Lasso CNRM-CM5 - CV Precipitation")
+p46 = plot_qq(pv_lasso_CNRM_CM5$pv, index = 3) + ggtitle("PV Lasso CNRM-CM5 - Mean Maximum Temperature")
+p47 = plot_qq(pv_lasso_CNRM_CM5$pv, index = 4) + ggtitle("PV Lasso CNRM-CM5 - CV Maximum Temperature")
+p48 = plot_qq(pv_lasso_CNRM_CM5$pv, index = 5) + ggtitle("PV Lasso CNRM-CM5 - Mean Minimum Temperature")
+p49 = plot_qq(pv_lasso_CNRM_CM5$pv, index = 6) + ggtitle("PV Lasso CNRM-CM5 - CV Minimum Temperature")
+print(p44)
+print(p45)
+print(p46)
+print(p47)
+print(p48)
+print(p49)
+```
+
+```{r}
+ggsave("../Figures/pv_lasso_mean_pr_CNRM_CM5.png", plot = p44, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_pr_CNRM_CM5.png", plot = p45, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmax_CNRM_CM5.png", plot = p46, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmax_CNRM_CM5.png", plot = p47, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmin_CNRM_CM5.png", plot = p48, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmin_CNRM_CM5.png", plot = p49, width = 10, height = 6)
 ```
 
 ```{r}
@@ -330,12 +412,27 @@ pv_lasso_CanESM2 = readRDS("data/pv_lasso_CanESM2.rds")
 ```
 
 ```{r}
-plot_qq(pv_lasso_CanESM2, index = 1)
-plot_qq(pv_lasso_CanESM2, index = 2)
-plot_qq(pv_lasso_CanESM2, index = 3)
-plot_qq(pv_lasso_CanESM2, index = 4)
-plot_qq(pv_lasso_CanESM2, index = 5)
-plot_qq(pv_lasso_CanESM2, index = 6)
+p50 = plot_qq(pv_lasso_CanESM2$pv, index = 1) + ggtitle("PV Lasso CanESM2 - Mean Precipitation")
+p51 = plot_qq(pv_lasso_CanESM2$pv, index = 2) + ggtitle("PV Lasso CanESM2 - CV Precipitation")
+p52 = plot_qq(pv_lasso_CanESM2$pv, index = 3) + ggtitle("PV Lasso CanESM2 - Mean Maximum Temperature")
+p53 = plot_qq(pv_lasso_CanESM2$pv, index = 4) + ggtitle("PV Lasso CanESM2 - CV Maximum Temperature")
+p54 = plot_qq(pv_lasso_CanESM2$pv, index = 5) + ggtitle("PV Lasso CanESM2 - Mean Minimum Temperature")
+p55 = plot_qq(pv_lasso_CanESM2$pv, index = 6) + ggtitle("PV Lasso CanESM2 - CV Minimum Temperature")
+print(p50)
+print(p51)
+print(p52)
+print(p53)
+print(p54)
+print(p55)
+```
+
+```{r}
+ggsave("../Figures/pv_lasso_mean_pr_CanESM2.png", plot = p50, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_pr_CanESM2.png", plot = p51, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmax_CanESM2.png", plot = p52, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmax_CanESM2.png", plot = p53, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmin_CanESM2.png", plot = p54, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmin_CanESM2.png", plot = p55, width = 10, height = 6)
 ```
 
 Based on the lambda values here, we can see that the associations for the precipitation variable in the CanESM2 model are less inflated (lower lambda) compared to the max temp and min temp variables, which show higher lambda values. 
@@ -424,12 +521,27 @@ pv_lasso_MIROC5 = readRDS("data/pv_lasso_MIROC5.rds")
 ```
 
 ```{r}
-plot_qq(pv_lasso_MIROC5, index = 1)
-plot_qq(pv_lasso_MIROC5, index = 2)
-plot_qq(pv_lasso_MIROC5, index = 3)
-plot_qq(pv_lasso_MIROC5, index = 4)
-plot_qq(pv_lasso_MIROC5, index = 5)
-plot_qq(pv_lasso_MIROC5, index = 6)
+p56 = plot_qq(pv_lasso_MIROC5$pv, index = 1) + ggtitle("PV Lasso MIROC5 - Mean Precipitation")
+p57 = plot_qq(pv_lasso_MIROC5$pv, index = 2) + ggtitle("PV Lasso MIROC5 - CV Precipitation")
+p58 = plot_qq(pv_lasso_MIROC5$pv, index = 3) + ggtitle("PV Lasso MIROC5 - Mean Maximum Temperature")
+p59 = plot_qq(pv_lasso_MIROC5$pv, index = 4) + ggtitle("PV Lasso MIROC5 - CV Maximum Temperature")
+p60 = plot_qq(pv_lasso_MIROC5$pv, index = 5) + ggtitle("PV Lasso MIROC5 - Mean Minimum Temperature")
+p61 = plot_qq(pv_lasso_MIROC5$pv, index = 6) + ggtitle("PV Lasso MIROC5 - CV Minimum Temperature")
+print(p56)
+print(p57)
+print(p58)
+print(p59)
+print(p60)
+print(p61)
+```
+
+```{r}
+ggsave("../Figures/pv_lasso_mean_pr_MIROC5.png", plot = p56, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_pr_MIROC5.png", plot = p57, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmax_MIROC5.png", plot = p58, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmax_MIROC5.png", plot = p59, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_mean_tasmin_MIROC5.png", plot = p60, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_cv_tasmin_MIROC5.png", plot = p61, width = 10, height = 6)
 ```
 
 
@@ -697,7 +809,7 @@ results_df <- data.frame(
 ```
 
 ```{r}
-p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p40 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
@@ -711,7 +823,11 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
     y = "Genomic Offset (ALL SNPs)",
     title = "Offset vs Environmental Change - MIROC5 Model"
   )
-print(p1)
+print(p40)
+```
+
+```{r}
+ggsave("../Figures/offset_miroc5.png", plot = p40, width = 12, height = 6, dpi = 300)
 ```
 
 National Parks FR and IH are high in genomic offset. IH has a higher environmental change magnitude than FR, but FR has a higher genomic offset. This suggests that the populations in FR may be more genetically mismatched to their future environment compared to IH, despite IH experiencing a greater overall change in environmental conditions. This could be due to differences in the specific environmental variables driving adaptation in each park, or differences in the genetic architecture of adaptation in the populations.
@@ -803,7 +919,7 @@ results_df <- data.frame(
 ```
 
 ```{r}
-p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p41 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
@@ -817,9 +933,12 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
     y = "Genomic Offset (ALL SNPs)",
     title = "Offset vs Environmental Change - CNRM_CM5 Model"
   )
-print(p1)
+print(p41)
 ```
 
+```{r}
+ggsave("../Figures/offset_cnrm_cm5.png", plot = p41, width = 12, height = 6, dpi = 300)
+```
 In this Genetic Offset model for the CNRM_CM5 climate model, we can see that the population in FR National Park has a high genomic offset despite having a relatively moderate environmental change magnitude. This suggests that the genetic composition of the FR population may be particularly mismatched to the future environmental conditions predicted by the CNRM_CM5 model, potentially putting it at greater risk of maladaptation. In contrast, the IH population has a lower genomic offset despite experiencing a higher environmental change magnitude, which could indicate that its genetic composition is more resilient or better suited to the predicted future conditions under this climate model. The SC population shows a lower genomic offset and lower environmental change magnitude, suggesting it may be less at risk of maladaptation under the CNRM_CM5 model compared to the other two populations.
 
 
@@ -908,7 +1027,7 @@ results_df <- data.frame(
 ```
 
 ```{r}
-p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p42 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
@@ -922,9 +1041,12 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
     y = "Genomic Offset (ALL SNPs)",
     title = "Offset vs Environmental Change - CanESM2 Model"
   )
-print(p1)
+print(p42)
 ```
 
+```{r}
+ggsave("../Figures/offset_can_esm2.png", plot = p42, width = 12, height = 6, dpi = 300)
+```
 For the CanESM2 Model, similar results are seen compared to the CNRM_CM5 model.
 
 
@@ -1012,7 +1134,7 @@ results_df <- data.frame(
 ```
 
 ```{r}
-p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p43 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
@@ -1026,9 +1148,12 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
     y = "Genomic Offset (ALL SNPs)",
     title = "Offset vs Environmental Change - HadGEM2-ES Model"
   )
-print(p1)
+print(p43)
 ```
 
+```{r}
+ggsave("../Figures/offset_hadgem2_es.png", plot = p43, width = 12, height = 6, dpi = 300)
+```
 Similar results of genomic offset is seen compared to the other three climate models. 
 
 First we match the ID's form the observed allele frequency data to the historical climate. Then we perform the lasso calculation to see how the environmental variables and their related SNPs are associated with genetic variation in the current climate. Finally, we calculate the genomic offset by comparing the genetic values under current and future climates based on the associations found in the lasso model. The beta matrix gives us the snp effects for each environmental variable and we can use this to calculate the genetic values for each population under current and future conditions, and then compute the genomic offset as the distance between these genetic values.
@@ -1101,7 +1226,7 @@ mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p34 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "p_val",
@@ -1109,12 +1234,14 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         title = "Mean Precipitation of All Models",
                         highlight_top_n = 20)
 
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+print(p34)
 ```
 each of the dots are one loci. association between the environmental variable and the allele frequency at one loci. highest dot is the lowest p-value showing the strong significance in association 
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_all_mean_pr.png", plot = p34, width = 12, height = 6, dpi = 300)
+```
+
 
 ```{r}
 plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,2], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,2]) |>
@@ -1124,7 +1251,7 @@ mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p35 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "p_val",
@@ -1132,12 +1259,12 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         title = "Relative Variation (cv) Precipitation of All Models",
                         highlight_top_n = 20)
 
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+print(p35)
 ```
 
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_all_cv_pr.png", plot = p35, width = 12, height = 6, dpi = 300)
+```
 
 ```{r}
 plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_gcm_mean$pv$pvalue[,3], calibrated.pvalue = pv_lasso_gcm_mean$pv$calibrated.pvalue[,3]) |>
@@ -1147,7 +1274,7 @@ mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p36 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "p_val",
@@ -1155,11 +1282,13 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         title = "Mean of Max Temperature of All Models",
                         highlight_top_n = 20)
 
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+print(p36)
 ```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_all_mean_max_temp.png", plot = p36, width = 12, height = 6, dpi = 300)
+```
+
 
 
 ```{r}
@@ -1170,7 +1299,7 @@ mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p37 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "p_val",
@@ -1178,10 +1307,11 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         title = "Relative Variation (cv) Max Temperature of All Models",
                         highlight_top_n = 20)
 
-print(manhattan_WL2)
+print(p37)
+```
 
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_all_cv_max_temp.png", plot = p37, width = 12, height = 6, dpi = 300)
 ```
 
 
@@ -1193,7 +1323,7 @@ mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p38 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "p_val",
@@ -1201,10 +1331,11 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         title = "Mean of Min Temperature of All Models",
                         highlight_top_n = 20)
 
-print(manhattan_WL2)
+print(p38)
+```
 
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_all_mean_min_temp.png", plot = p38, width = 12, height = 6, dpi = 300)
 ```
 
 
@@ -1216,7 +1347,7 @@ mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p39 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "p_val",
@@ -1224,13 +1355,12 @@ manhattan_WL2 = plot_manhattan(plot_data_2023,
                         title = "Relative Variation (cv) Min Temperature of All Models",
                         highlight_top_n = 20)
 
-print(manhattan_WL2)
-
-# Optionally save plot
-#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+print(p39)
 ```
 
-
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_all_cv_min_temp.png", plot = p39, width = 12, height = 6, dpi = 300)
+```
 
 
 

@@ -50,7 +50,7 @@ comparison_table = loo_cv$comparison
 
 ggplot
 ```{r}
-comparison_plot <- 
+p33 = comparison_plot <- 
   ggplot(comparison_table, aes(x = offset_full, y = offset_loo, label = population)) +
   geom_point(aes(color = leverage_flag)) +
   geom_smooth(method = "lm", se = FALSE) +
@@ -63,7 +63,13 @@ comparison_plot <-
   theme_minimal()
 
 comparison_plot
+print(p33)
 ```
+
+```{r}
+ggsave("../Figures/offset_fullvsloo.png", plot = p33, width = 10, height = 6)
+```
+
 certain populations have high leverage which includes the FR, SC, IH, WL2. even with the modest environmental change, show high offset values. remove these populations during initial lfmm run and project it again for the offset calculation: 
 
 B matrix: weighted allele frequency matrix(strength of the association between climate and snps) to capture the climate-allele relationship and project future climate data which never saw the left out population. predict the offset for the left out populations
@@ -309,13 +315,31 @@ pv_lasso_gcm_mean = run_lasso(X_2023_gcm_mean, Y_2023)
 
 
 ```{r}
-plot_qq(pv_lasso_gcm_mean$pv, index = 1)
-plot_qq(pv_lasso_gcm_mean$pv, index = 2)
-plot_qq(pv_lasso_gcm_mean$pv, index = 3)
-plot_qq(pv_lasso_gcm_mean$pv, index = 4)
-plot_qq(pv_lasso_gcm_mean$pv, index = 5)
-plot_qq(pv_lasso_gcm_mean$pv, index = 6)
+p26 = plot_qq(pv_lasso_gcm_mean$pv, index = 1) + ggtitle("PV Lasso GCM Mean - Mean Precipitation")
+p27 = plot_qq(pv_lasso_gcm_mean$pv, index = 2) + ggtitle("PV Lasso GCM Mean - CV Precipitation")
+p28 = plot_qq(pv_lasso_gcm_mean$pv, index = 3) + ggtitle("PV Lasso GCM Mean - Mean Maximum Temperature")
+p29 = plot_qq(pv_lasso_gcm_mean$pv, index = 4) + ggtitle("PV Lasso GCM Mean - CV Maximum Temperature")
+p30 = plot_qq(pv_lasso_gcm_mean$pv, index = 5) + ggtitle("PV Lasso GCM Mean - Mean Minimum Temperature")
+p31 = plot_qq(pv_lasso_gcm_mean$pv, index = 6) + ggtitle("PV Lasso GCM Mean - CV Minimum Temperature")
+print(p26)
+print(p27)
+print(p28)
+print(p29)
+print(p30)
+print(p31)
 ```
+
+```{r}
+ggsave("../Figures/pv_lasso_gcm_mean_pr_mean.png", plot = p26, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_mean_pr_cv.png", plot = p27, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_mean_tasmax_mean.png", plot = p28, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_mean_tasmax_cv.png", plot = p29, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_mean_tasmin_mean.png", plot = p30, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_mean_tasmin_cv.png", plot = p31, width = 10, height = 6)
+```
+
+
+
 
 ```{r}
 remove_pops = c("WL2", "IH", "FR", "SC")
@@ -394,7 +418,7 @@ results_df <- data.frame(
 ```
 
 ```{r}
-p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p32 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
@@ -406,9 +430,12 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
   labs(
     x = "Environmental Change Magnitude",
     y = "Genomic Offset (ALL SNPs)",
-    title = "Offset vs Environmental Change - Mean of All Models"
+    title = "Offset vs Environmental Change - Mean of All Models (w/o WL2, IH, FR, SC)"
   )
-print(p1)
+print(p32)
+```
+```{r}
+ggsave("../Figures/offset_mean_all.png", plot = p32, width = 10, height = 6)
 ```
 
 
