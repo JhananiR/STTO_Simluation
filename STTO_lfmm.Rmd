@@ -353,26 +353,81 @@ ggsave("../Figures/pv_lasso_cv_tasmin_CNRM_CM5.png", plot = p49, width = 10, hei
 ```
 
 ```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pvalue[,3], calibrated.pvalue = pv_lasso_CNRM_CM5$calibrated.pvalue[,3]) |>
-separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pv$pvalue[,1], calibrated.pvalue = pv_lasso_CNRM_CM5$pv$calibrated.pvalue[,1]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
 filter(str_detect(chr, "Chr")) |>
 mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p73 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
-                        title = "WL2 2023",
                         highlight_top_n = 20, 
                         title = "CNRM-CM5 Model - Precipitation")
 
-print(manhattan_WL2)
+print(p73)
 
 # Optionally save plot
 #ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_CNRM_CM5_pr.png", plot = p73, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pv$pvalue[,2], calibrated.pvalue = pv_lasso_CNRM_CM5$pv$calibrated.pvalue[,2]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p74 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "CNRM-CM5 Model - Maximum Temperature")
+
+print(p74)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_CNRM_CM5_max_temp.png", plot = p74, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CNRM_CM5$pv$pvalue[,3], calibrated.pvalue = pv_lasso_CNRM_CM5$pv$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p75 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "CNRM-CM5 Model - Minimum Temperature")
+
+print(p75)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_CNRM_CM5_min_temp.png", plot = p75, width = 12, height = 6, dpi = 300)
 ```
 
 
@@ -438,26 +493,81 @@ ggsave("../Figures/pv_lasso_cv_tasmin_CanESM2.png", plot = p55, width = 10, heig
 Based on the lambda values here, we can see that the associations for the precipitation variable in the CanESM2 model are less inflated (lower lambda) compared to the max temp and min temp variables, which show higher lambda values. 
 
 ```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pvalue[,3], calibrated.pvalue = pv_lasso_CanESM2$calibrated.pvalue[,3]) |>
-separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pv$pvalue[,1], calibrated.pvalue = pv_lasso_CanESM2$pv$calibrated.pvalue[,1]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
 filter(str_detect(chr, "Chr")) |>
 mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p78 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
-                        title = "WL2 2023",
-                        highlight_top_n = 20,
+                        highlight_top_n = 20, 
                         title = "CanESM2 Model - Precipitation")
 
-print(manhattan_WL2)
+print(p78)
 
 # Optionally save plot
 #ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_CanESM2_pr.png", plot = p78, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pv$pvalue[,2], calibrated.pvalue = pv_lasso_CanESM2$pv$calibrated.pvalue[,2]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p79 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "CanESM2 Model - Maximum Temperature")
+
+print(p79)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_CanESM2_max_temp.png", plot = p79, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_CanESM2$pv$pvalue[,3], calibrated.pvalue = pv_lasso_CanESM2$pv$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p80 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "CanESM2 Model - Minimum Temperature")
+
+print(p80)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_CanESM2_min_temp.png", plot = p80, width = 12, height = 6, dpi = 300)
 ```
 
 
@@ -546,26 +656,83 @@ ggsave("../Figures/pv_lasso_cv_tasmin_MIROC5.png", plot = p61, width = 10, heigh
 
 
 ```{r}
-plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_MIROC5$pvalue[,3], calibrated.pvalue = pv_lasso_MIROC5$calibrated.pvalue[,3]) |>
-separate_wider_delim(loci, delim = ":", names = c("chr", "bp")) |>
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_MIROC5$pv$pvalue[,1], calibrated.pvalue = pv_lasso_MIROC5$pv$calibrated.pvalue[,1]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
 filter(str_detect(chr, "Chr")) |>
 mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
 bp = as.numeric(bp))
 
 
-manhattan_WL2 = plot_manhattan(plot_data_2023,
+p81 = manhattan_WL2 = plot_manhattan(plot_data_2023,
                         chr_col = "chr",
                         pos_col = "bp",
                         value_col = "calibrated.pvalue",
                         transform = "neglog10",
-                        title = "WL2 2023",
-                        highlight_top_n = 20,
+                        highlight_top_n = 20, 
                         title = "MIROC5 Model - Precipitation")
 
-print(manhattan_WL2)
+print(p81)
 
 # Optionally save plot
 #ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_MIROC5_pr.png", plot = p81, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_MIROC5$pv$pvalue[,2], calibrated.pvalue = pv_lasso_MIROC5$pv$calibrated.pvalue[,2]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p82 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "MIROC5 Model - Maximum Temperature")
+
+print(p82)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_MIROC5_max_temp.png", plot = p82, width = 12, height = 6, dpi = 300)
+```
+
+
+```{r}
+plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_MIROC5$pv$pvalue[,3], calibrated.pvalue = pv_lasso_MIROC5$pv$calibrated.pvalue[,3]) |>
+separate_wider_delim(loci, delim = "_", names = c("chr", "bp")) |>
+filter(str_detect(chr, "Chr")) |>
+mutate(p.bonf = p.adjust(p_val, method = "bonferroni"),
+bp = as.numeric(bp))
+
+
+p83 = manhattan_WL2 = plot_manhattan(plot_data_2023,
+                        chr_col = "chr",
+                        pos_col = "bp",
+                        value_col = "calibrated.pvalue",
+                        transform = "neglog10",
+                        highlight_top_n = 20, 
+                        title = "MIROC5 Model - Minimum Temperature")
+
+print(p83)
+
+# Optionally save plot
+#ggsave("WL2_2023.png", manhattan_WL2, width = 12, height = 6, dpi = 300)
+```
+
+```{r}
+ggsave("../Figures/WL2_2023_manhattan_MIROC5_min_temp.png", plot = p83, width = 12, height = 6, dpi = 300)
 ```
 
 

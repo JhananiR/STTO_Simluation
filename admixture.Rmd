@@ -1,0 +1,707 @@
+---
+title: "Admixture"
+output: html_document
+date: "2026-05-07"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load libraries
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(ggrepel)
+library(patchwork)
+library(lfmm)
+library(ggplot2)
+library(dplyr)
+```
+Read historical data
+```{r}
+his_data = read.delim("data/Historical_climate_caladapt_1950_2004.tsv", header = TRUE)
+```
+
+Read Future Climate data
+```{r}
+fut_data = read.delim("data/Future_climate_ppt_caladapt_2040_2070.tsv", header = TRUE)
+```
+
+```{r}
+# We would be using this new data and not the old one.
+geno_23 = read.delim("data/snp_allele_freq_mat.csv", header = TRUE, sep = ",")
+pops =colnames(geno_23)[-1]
+npop = length(pops)
+```
+
+
+#Function for LFMM
+```{r}
+run_lasso <- function(X=NULL,Y=NULL,K=5) {
+   mod.lfmm_lasso <- lfmm_lasso(Y = Y, 
+                        X = X, 
+                        K = K,
+                        nozero.prop = 0.01)
+   pv_lasso <- lfmm_test(Y = Y, 
+                 X = X, 
+                 lfmm = mod.lfmm_lasso, 
+                 calibrate = "gif")
+  
+  # Made changes here. It now returns both the objects
+   return(list(pv = pv_lasso, mod = mod.lfmm_lasso))
+}
+```
+
+
+#Function for qqplot
+```{r}
+plot_qq <- function(pvalue_data = NULL,
+                    index = 1){
+  pvalues.raw = pvalue_data$pvalue[,index]
+  
+n = length(sort(pvalues.raw))
+df = tibble(observed = sort(-log10(pvalues.raw)),
+expected = sort(-log10(ppoints(n))),
+clower   = -log10(qbeta(p = (1 - 0.95) / 2, shape1 = 1:n, shape2 = n:1)),
+cupper   = -log10(qbeta(p = (1 + 0.95) / 2, shape1 = 1:n, shape2 = n:1))
+)
+
+# Convert p-values to 1-df chi-squared statistics
+chi2 <- qchisq(pvalues.raw, df=1, lower.tail=FALSE)
+# Calculate lambda
+lambda <- median(chi2) / qchisq(0.5, df=1)
+print(lambda)
+
+y_max_print = df |>
+  slice_max(observed, n=1) |>
+  pull(observed)
+  lambda = round(lambda, digits =2)
+
+
+p = df |>
+ggplot() +
+geom_ribbon(aes(x = expected, ymin = clower, ymax = cupper), alpha = 0.1) +
+geom_point(aes(expected, observed), shape = 1, size = 3) +
+geom_abline(intercept = 0, slope = 1, alpha = 0.5) +
+theme_bw() +
+annotate(geom = "text", x=1, y = y_max_print-0.5, label = paste0("Lambda = ", lambda))+
+labs(x = expression(paste("Expected -log"[10], plain(P))),
+y = expression(paste("Observed -log"[10], plain(P))))
+
+return(p)
+
+}
+```
+
+#Function for genomic offset
+```{r}
+calculate_genomic_offset = function(allele_freq, 
+                                     lfmm_effects, 
+                                     env_current, 
+                                     env_future,
+                                     snp_filter = NULL,
+                                     method = "euclidean") {
+  
+  # Dimensions check
+  n_pop = nrow(allele_freq)
+  n_snp = ncol(allele_freq)
+  n_env = ncol(env_current)
+  
+  cat("\n=== Genomic Offset Calculation ===\n")
+  cat("Populations:", n_pop, "\n")
+  cat("SNPs (total):", n_snp, "\n")
+  cat("Environmental variables:", n_env, "\n")
+  
+  # Apply SNP filter if provided
+  if (!is.null(snp_filter)) {
+    allele_freq = allele_freq[, snp_filter, drop = FALSE]
+    lfmm_effects = lfmm_effects[snp_filter, , drop = FALSE]
+    cat("SNPs (after filtering):", sum(snp_filter), "\n")
+  }
+  
+  # Ensure environmental variables are standardized
+  # Use same scaling for current and future based on current
+  env_means = colMeans(env_current)
+  env_sds = apply(env_current, 2, sd)
+  
+  env_current_scaled = scale(env_current, center = env_means, scale = env_sds)
+  env_future_scaled = scale(env_future, center = env_means, scale = env_sds)
+  
+  cat("\nEnvironmental variables standardized using current climate statistics\n")
+  
+  # ========================================================================
+  # STEP 1: Calculate genetic values under current climate
+  # ========================================================================
+  # For each population, calculate adaptive genetic value
+  # genetic_value = sum over SNPs and env vars of:
+  #   (allele_freq × effect_size × env_value)
+  
+  genetic_values_current = matrix(0, nrow = n_pop, ncol = n_env)
+  
+  for (i in 1:n_pop) {
+    for (j in 1:n_env) {
+      # Allele frequency × effect size for this env variable
+      weighted_freqs = allele_freq[i, ] * lfmm_effects[, j]
+      # Weighted by environmental value
+      genetic_values_current[i, j] = sum(weighted_freqs) * env_current_scaled[i, j]
+    }
+  }
+  
+  # Total genetic value across all environmental axes
+  genetic_value_current_total = rowSums(genetic_values_current)
+  
+  cat("\nCurrent genetic values calculated\n")
+  
+  # ========================================================================
+  # STEP 2: Calculate genetic values under future climate
+  # ========================================================================
+  
+  genetic_values_future = matrix(0, nrow = n_pop, ncol = n_env)
+  
+  for (i in 1:n_pop) {
+    for (j in 1:n_env) {
+      # Same allele frequencies (no evolution assumed)
+      # But different environmental values
+      weighted_freqs = allele_freq[i, ] * lfmm_effects[, j]
+      genetic_values_future[i, j] = sum(weighted_freqs) * env_future_scaled[i, j]
+    }
+  }
+  
+  genetic_value_future_total = rowSums(genetic_values_future)
+  
+  cat("Future genetic values calculated\n")
+  
+  # ========================================================================
+  # STEP 3: Calculate offset
+  # ========================================================================
+  
+  if (method == "euclidean") {
+    # Euclidean distance across all environmental dimensions
+    offset = sqrt(rowSums((genetic_values_future - genetic_values_current)^2))
+    cat("\nOffset method: Euclidean distance\n")
+    
+  } else if (method == "absolute") {
+    # Simple absolute difference
+    offset = abs(genetic_value_future_total - genetic_value_current_total)
+    cat("\nOffset method: Absolute difference\n")
+    
+  } else if (method == "relative") {
+    # Relative change
+    offset = abs((genetic_value_future_total - genetic_value_current_total) / 
+                    (abs(genetic_value_current_total) + 1e-10))
+    cat("\nOffset method: Relative change\n")
+  }
+  
+  # ========================================================================
+  # STEP 4: Per-variable contributions
+  # ========================================================================
+  
+  # Calculate offset contribution from each environmental variable
+  offset_by_var = sqrt((genetic_values_future - genetic_values_current)^2)
+  colnames(offset_by_var) = colnames(env_current)
+  
+  cat("\nOffset calculation complete!\n")
+  cat("Mean offset:", round(mean(offset), 4), "\n")
+  cat("Range:", round(min(offset), 4), "-", round(max(offset), 4), "\n")
+  
+  # Return results
+  return(list(
+    offset = offset,
+    offset_by_variable = offset_by_var,
+    genetic_values_current = genetic_value_current_total,
+    genetic_values_future = genetic_value_future_total,
+    genetic_values_current_by_var = genetic_values_current,
+    genetic_values_future_by_var = genetic_values_future,
+    env_change = env_future_scaled - env_current_scaled,
+    n_snps_used = ncol(allele_freq)
+  ))
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+#New Frequency Matrix with alpha = 0.1
+```{r}
+alpha <- 0.1
+
+new_LV1 = ((1 - alpha) * geno_23$LV1) + (alpha * geno_23$SQ1)
+new_allele_mat <- geno_23
+new_allele_mat$LV1 = new_LV1
+```
+
+```{r}
+plot(new_allele_mat$LV1, geno_23$LV1, xlab = "new LV1", ylab = "old LV1", main = "Admixture Plot")
+```
+
+
+
+
+
+
+
+
+
+#LFMM (leaving out LV1 from original matrix)
+```{r}
+Y_2023_noLV1 = as.matrix(geno_23[,-1])
+Y_2023_noLV1 = t(Y_2023_noLV1)
+Y_2023_noLV1 <- Y_2023_noLV1[rownames(Y_2023_noLV1) != "LV1", ]
+```
+
+```{r}
+Y_2023 = as.matrix(geno_23[,-1])
+Y_2023 = t(Y_2023)
+```
+
+```{r}
+gcm_mean_his <- his_data %>% 
+  filter(dt >= "1990-12-31") %>% 
+  group_by(id, cvar, dt) %>%
+  summarize(mean_val = mean(val)) %>% 
+  ungroup() %>% 
+  group_by(id, cvar) %>% 
+  summarise(mean_val_ = mean(mean_val),
+            cv = sd(mean_val)/mean(mean_val)) %>% 
+  ungroup()
+```
+
+
+```{r}
+gcm_mean = gcm_mean_his %>% 
+  pivot_longer(cols = mean_val_:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
+
+
+
+
+```{r}
+X_2023_gcm_mean = gcm_mean %>% 
+  ungroup() %>% 
+  select(-id) %>% 
+  as.matrix() %>% 
+  scale()
+rownames(X_2023_gcm_mean) <- gcm_mean$id
+```
+
+
+```{r}
+common_noLV1 <- intersect(rownames(X_2023_gcm_mean), rownames(Y_2023_noLV1))
+Y_2023_noLV1 <- Y_2023_noLV1[common_noLV1, ]
+X_2023_noLV1 <- X_2023_gcm_mean[common_noLV1, , drop = FALSE]
+```
+
+```{r}
+pv_lasso_noLV1 <- run_lasso(X_2023_noLV1, Y_2023_noLV1)
+```
+
+```{r}
+p65 = plot_qq(pv_lasso_noLV1$pv, index = 1) + ggtitle("PV Lasso GCM Mean w/o LV1 - Mean Precipitation")
+p66 = plot_qq(pv_lasso_noLV1$pv, index = 2) + ggtitle("PV Lasso GCM Mean w/o LV1 - CV Precipitation")
+p67 = plot_qq(pv_lasso_noLV1$pv, index = 3) + ggtitle("PV Lasso GCM Mean w/o LV1 - Mean Maximum Temperature")
+p68 = plot_qq(pv_lasso_noLV1$pv, index = 4) + ggtitle("PV Lasso GCM Mean w/o LV1 - CV Maximum Temperature")
+p69 = plot_qq(pv_lasso_noLV1$pv, index = 5) + ggtitle("PV Lasso GCM Mean w/o LV1 - Mean Minimum Temperature")
+p70 = plot_qq(pv_lasso_noLV1$pv, index = 6) + ggtitle("PV Lasso GCM Mean w/o LV1 - CV Minimum Temperature")
+print(p65)
+print(p66)
+print(p67)
+print(p68)
+print(p69)
+print(p70)
+```
+```{r}
+ggsave("../Figures/pv_lasso_gcm_mean_pr_noLV1.png", plot = p65, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_cv_pr_noLV1.png", plot = p66, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_mean_tasmax_noLV1.png", plot = p67, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_cv_tasmax_noLV1.png", plot = p68, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_mean_tasmin_noLV1.png", plot = p69, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_gcm_cv_tasmin_noLV1.png", plot = p70, width = 10, height = 6)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#Future mean Climate Data
+```{r}
+gcm_mean_fut <- fut_data %>% 
+  filter(scenario == "rcp85") %>%
+  group_by(id, cvar, dt) %>% 
+  summarise(mean_val = mean(val)) %>% 
+  ungroup() %>% 
+  group_by(id, cvar) %>%
+  summarise(mean_val_ = mean(mean_val),
+            cv = sd(mean_val)/mean(mean_val)) %>% 
+  ungroup() %>% 
+  pivot_longer(cols = mean_val_:cv) %>% 
+  unite(name, cvar:name) %>% 
+  pivot_wider(names_from = name, values_from = value)
+```
+
+
+```{r}
+X_gcm_fut = gcm_mean_fut %>% 
+  ungroup() %>% 
+  select(-id) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+```{r}
+rownames(X_gcm_fut) = gcm_mean_fut$id
+common=intersect(rownames(X_gcm_fut), rownames(Y_2023))
+X_gcm_fut = X_gcm_fut[common, , drop = FALSE]
+```
+
+
+
+
+
+
+
+
+
+#make two genetic offset plots with new and old matrices
+
+```{r}
+#Original offset
+# Extract B here
+B = pv_lasso_noLV1$mod$B
+allele_freq = Y_2023
+pop_names = rownames(allele_freq)
+common = intersect(pop_names, rownames(X_2023_gcm_mean))
+env_current = as.matrix(X_2023_gcm_mean[pop_names ,])
+#rownames(env_current) = rownames(X_2023_gcm_mean)
+env_future = as.matrix(X_gcm_fut)
+#rownames(env_future) = rownames(X_gcm_fut)
+lfmm_effects = B
+# lfmm_pvalues = pv_2023$pvalue
+
+
+
+offset_all_gcm_mean = calculate_genomic_offset(
+  allele_freq = allele_freq,
+  lfmm_effects = lfmm_effects,
+  env_current = env_current,
+  env_future = env_future,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+
+
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all_gcm_mean$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
+  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p71 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change - Mean of All Models w/0 LV1 (orignal matrix)"
+  )
+print(p71)
+```
+```{r}
+ggsave("../Figures/offset_gcm_mean_noLV1.png", plot = p71, width = 10, height = 6)
+```
+
+
+
+
+
+```{r}
+#admixed offset
+# Extract B here
+B = pv_lasso_noLV1$mod$B
+adx_allele_freq = as.matrix(new_allele_mat[, -1]) #remove snpid column
+adx_allele_freq = t(adx_allele_freq)
+
+# Align to common populations with env data
+common_adx = intersect(
+  intersect(rownames(X_2023_gcm_mean), rownames(X_gcm_fut)),
+  rownames(adx_allele_freq)
+)
+
+adx_allele_freq = adx_allele_freq[common_adx, , drop = FALSE]
+env_current = as.matrix(X_2023_gcm_mean[common_adx, , drop = FALSE])
+#rownames(env_current) = rownames(X_2023_gcm_mean)
+env_future = as.matrix(X_gcm_fut[common_adx, , drop = FALSE])
+#rownames(env_future) = rownames(X_gcm_fut)
+#lfmm_effects = B
+# lfmm_pvalues = pv_2023$pvalue
+
+
+
+
+adx_offset_all_gcm_mean = calculate_genomic_offset(
+  allele_freq = adx_allele_freq,
+  lfmm_effects = B,
+  env_current = env_current,
+  env_future = env_future,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all_gcm_mean$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
+  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p72 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change - Mean of All Models Admixed Mixture alpha = 0.1"
+  )
+print(p72)
+```
+
+```{r}
+ggsave("../Figures/adx_offset_gcm_mean_noLV1_01.png", plot = p72, width = 10, height = 6)
+```
+
+
+
+
+#New Allele Frequency matrix with alpha = 0.2
+```{r}
+alpha <- 0.2
+
+new_LV1_02 = ((1 - alpha) * geno_23$LV1) + (alpha * geno_23$SQ1)
+new_allele_mat_02 <- geno_23
+new_allele_mat_02$LV1 = new_LV1_02
+```
+
+```{r}
+plot(new_allele_mat_02$LV1, geno_23$LV1, xlab = "new LV1", ylab = "old LV1", main = "Admixture Plot alpha = 0.2")
+```
+
+#offset calculations
+```{r}
+#admixed offset
+# Extract B here
+B = pv_lasso_noLV1$mod$B
+adx_allele_freq_02 = as.matrix(new_allele_mat_02[, -1]) #remove snpid column
+adx_allele_freq_02 = t(adx_allele_freq_02)
+
+# Align to common populations with env data
+common_adx_02 = intersect(
+  intersect(rownames(X_2023_gcm_mean), rownames(X_gcm_fut)),
+  rownames(adx_allele_freq_02)
+)
+
+adx_allele_freq_02 = adx_allele_freq_02[common_adx_02, , drop = FALSE]
+env_current_02 = as.matrix(X_2023_gcm_mean[common_adx_02, , drop = FALSE])
+#rownames(env_current) = rownames(X_2023_gcm_mean)
+env_future_02 = as.matrix(X_gcm_fut[common_adx_02, , drop = FALSE])
+#rownames(env_future) = rownames(X_gcm_fut)
+#lfmm_effects = B
+# lfmm_pvalues = pv_2023$pvalue
+
+
+
+
+adx_offset_all_gcm_mean_02 = calculate_genomic_offset(
+  allele_freq = adx_allele_freq_02,
+  lfmm_effects = B,
+  env_current = env_current_02,
+  env_future = env_future_02,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all_gcm_mean$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
+  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p76 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change - Mean of All Models Admixed Mixture alpha = 0.2"
+  )
+print(p76)
+```
+
+```{r}
+ggsave("../Figures/adx_offset_gcm_mean_noLV1_02.png", plot = p76, width = 10, height = 6)
+```
+
+#New Allele Frequency matrix with alpha = 0.3
+```{r}
+alpha <- 0.3
+
+new_LV1_03 = ((1 - alpha) * geno_23$LV1) + (alpha * geno_23$SQ1)
+new_allele_mat_03 <- geno_23
+new_allele_mat_03$LV1 = new_LV1_03
+```
+
+```{r}
+plot(new_allele_mat_03$LV1, geno_23$LV1, xlab = "new LV1", ylab = "old LV1", main = "Admixture Plot alpha = 0.3")
+```
+
+#offset calculations
+```{r}
+#admixed offset
+# Extract B here
+B = pv_lasso_noLV1$mod$B
+adx_allele_freq_03 = as.matrix(new_allele_mat_03[, -1]) #remove snpid column
+adx_allele_freq_03 = t(adx_allele_freq_03)
+
+# Align to common populations with env data
+common_adx_03 = intersect(
+  intersect(rownames(X_2023_gcm_mean), rownames(X_gcm_fut)),
+  rownames(adx_allele_freq_03)
+)
+
+adx_allele_freq_03 = adx_allele_freq_03[common_adx_03, , drop = FALSE]
+env_current_03 = as.matrix(X_2023_gcm_mean[common_adx_03, , drop = FALSE])
+#rownames(env_current) = rownames(X_2023_gcm_mean)
+env_future_03 = as.matrix(X_gcm_fut[common_adx_03, , drop = FALSE])
+#rownames(env_future) = rownames(X_gcm_fut)
+#lfmm_effects = B
+# lfmm_pvalues = pv_2023$pvalue
+
+
+
+
+adx_offset_all_gcm_mean_03 = calculate_genomic_offset(
+  allele_freq = adx_allele_freq_03,
+  lfmm_effects = B,
+  env_current = env_current_03,
+  env_future = env_future_03,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+```{r}
+results_df <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = offset_all_gcm_mean$offset,
+  # Genetic values
+  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
+  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p77 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change - Mean of All Models Admixed Mixture alpha = 0.3"
+  )
+print(p77)
+```
+
+```{r}
+ggsave("../Figures/adx_offset_gcm_mean_noLV1_03.png", plot = p77, width = 10, height = 6)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -394,7 +394,7 @@ ggsave("../Figures/fut_mean_min_temp_all.png", plot = p17, width = 10, height = 
 Mean Maximum Temperature
 ```{r}
 p18 = 
-ggplot(gcm_mean_graph, aes(x = id, y = mean_period_tasmax))+
+ggplot(gcm_mean_fut_graph, aes(x = id, y = mean_period_tasmax))+
   geom_crossbar(aes(ymin = mean_period_tasmax, ymax = mean_period_tasmax))+
   geom_errorbar(aes(ymin = mean_period_tasmax - sd_period_tasmax, ymax = mean_period_tasmax + sd_period_tasmax), width = 0.6)+
   labs(title = "Mean Maximum Temperature Across All Climate Models - Future(rcp85)", x = "Population", y = "Mean Max Temp")+
