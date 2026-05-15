@@ -473,7 +473,7 @@ env_current = as.matrix(X_2023_gcm_mean[common_adx, , drop = FALSE])
 #rownames(env_current) = rownames(X_2023_gcm_mean)
 env_future = as.matrix(X_gcm_fut[common_adx, , drop = FALSE])
 #rownames(env_future) = rownames(X_gcm_fut)
-#lfmm_effects = B
+lfmm_effects = B
 # lfmm_pvalues = pv_2023$pvalue
 
 
@@ -490,20 +490,20 @@ adx_offset_all_gcm_mean = calculate_genomic_offset(
 ```
 
 ```{r}
-results_df <- data.frame(
+results_df_adx <- data.frame(
   population = pop_names,
   # Offsets
-  offset_all_snps = offset_all_gcm_mean$offset,
+  offset_all_snps = adx_offset_all_gcm_mean$offset,
   # Genetic values
-  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
-  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  genetic_value_current_all = adx_offset_all_gcm_mean$genetic_values_current,
+  genetic_value_future_all = adx_offset_all_gcm_mean$genetic_values_future,
   # Add environmental change magnitude
   env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
 )
 ```
 
 ```{r}
-p72 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p72 <- ggplot(results_df_adx, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
@@ -576,20 +576,20 @@ adx_offset_all_gcm_mean_02 = calculate_genomic_offset(
 ```
 
 ```{r}
-results_df <- data.frame(
+results_df_adx_02 <- data.frame(
   population = pop_names,
   # Offsets
-  offset_all_snps = offset_all_gcm_mean$offset,
+  offset_all_snps = adx_offset_all_gcm_mean_02$offset,
   # Genetic values
-  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
-  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  genetic_value_current_all = adx_offset_all_gcm_mean_02$genetic_values_current,
+  genetic_value_future_all = adx_offset_all_gcm_mean_02$genetic_values_future,
   # Add environmental change magnitude
   env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
 )
 ```
 
 ```{r}
-p76 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p76 <- ggplot(results_df_adx_02, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
@@ -642,7 +642,7 @@ env_current_03 = as.matrix(X_2023_gcm_mean[common_adx_03, , drop = FALSE])
 #rownames(env_current) = rownames(X_2023_gcm_mean)
 env_future_03 = as.matrix(X_gcm_fut[common_adx_03, , drop = FALSE])
 #rownames(env_future) = rownames(X_gcm_fut)
-#lfmm_effects = B
+lfmm_effects = B
 # lfmm_pvalues = pv_2023$pvalue
 
 
@@ -659,20 +659,20 @@ adx_offset_all_gcm_mean_03 = calculate_genomic_offset(
 ```
 
 ```{r}
-results_df <- data.frame(
+results_df_adx_03 <- data.frame(
   population = pop_names,
   # Offsets
-  offset_all_snps = offset_all_gcm_mean$offset,
+  offset_all_snps = adx_offset_all_gcm_mean_03$offset,
   # Genetic values
-  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
-  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  genetic_value_current_all = adx_offset_all_gcm_mean_03$genetic_values_current,
+  genetic_value_future_all = adx_offset_all_gcm_mean_03$genetic_values_future,
   # Add environmental change magnitude
   env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
 )
 ```
 
 ```{r}
-p77 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+p77 <- ggplot(results_df_adx_03, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
   geom_point(size = 3, alpha = 0.7, color = "darkred") +
   geom_smooth(method = "lm", se = TRUE, color = "black") +
   geom_text_repel()+
