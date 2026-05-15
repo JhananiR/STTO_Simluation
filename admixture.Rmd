@@ -245,7 +245,7 @@ new_allele_mat$LV1 = new_LV1
 plot(new_allele_mat$LV1, geno_23$LV1, xlab = "new LV1", ylab = "old LV1", main = "Admixture Plot")
 ```
 
-
+#admixture plot visualizes how much the allele frequencies shift from original lv1 as alpha increases
 
 
 
@@ -331,7 +331,8 @@ ggsave("../Figures/pv_lasso_gcm_mean_tasmin_noLV1.png", plot = p69, width = 10, 
 ggsave("../Figures/pv_lasso_gcm_cv_tasmin_noLV1.png", plot = p70, width = 10, height = 6)
 ```
 
-
+#lfmm used to identify snps associated with 6 environmental variableswhich produces B matrix (snps x environmental variables) capture how strongly each snp responds to each climate variable
+#k=5 represents the number of latent factors which account for population structure so we're not confounding true associations with population structure
 
 
 
@@ -384,7 +385,7 @@ X_gcm_fut = X_gcm_fut[common, , drop = FALSE]
 
 
 
-
+#genetic offset measures how mismatched a population's current genetic composition will be to future climate conditions. higher offset =  greater risk of maladaptation under climate change
 
 
 #make two genetic offset plots with new and old matrices
@@ -454,7 +455,7 @@ ggsave("../Figures/offset_gcm_mean_noLV1.png", plot = p71, width = 10, height = 
 
 
 
-
+#admixed plot with alpha = 0.1
 ```{r}
 #admixed offset
 # Extract B here
@@ -524,7 +525,9 @@ print(p72)
 ggsave("../Figures/adx_offset_gcm_mean_noLV1_01.png", plot = p72, width = 10, height = 6)
 ```
 
-
+#simulated assisted gene flow where alpha as 0.1 = lv1's allele frequencies reflect 10% contribution from sq1 and we tested upto 0.3
+#trying to see if the offset is actually decreasing as we increase gene flow
+#reduction in offset would mean that the admixed population's allele freqeuencies are closer to what would be selectively favored under future climate; higher chance of adapting successfully without going locally extinct
 
 
 #New Allele Frequency matrix with alpha = 0.2
