@@ -266,8 +266,10 @@ calculate_genomic_offset = function(allele_freq,
   env_means = colMeans(env_current)
   env_sds = apply(env_current, 2, sd)
   
-  env_current_scaled = scale(env_current, center = env_means, scale = env_sds)
-  env_future_scaled = scale(env_future, center = env_means, scale = env_sds)
+  #env_current_scaled = scale(env_current, center = env_means, scale = env_sds)
+  #env_future_scaled = scale(env_future, center = env_means, scale = env_sds)
+  env_current_scaled = env_current
+  env_future_scaled = env_future
   
   cat("\nEnvironmental variables standardized using current climate statistics\n")
   
@@ -462,5 +464,331 @@ ggplot() +
   coord_fixed(1.3) +
   # Customize the theme
   theme_void()
+
+```
+
+#New Allele Frequency matrix with alpha = 0.3
+```{r}
+alpha <- 0.7
+
+new_LV1_03 = ((1 - alpha) * geno_23$LV1) + (alpha * geno_23$SQ1)
+new_allele_mat_03 <- geno_23
+new_allele_mat_03$LV1 = new_LV1_03
+```
+
+```{r}
+plot(new_allele_mat_03$LV1, geno_23$LV1, xlab = "new LV1", ylab = "old LV1", main = "Admixture Plot alpha = 0.3")
+```
+
+#offset calculations
+```{r}
+#admixed offset
+# Extract B here
+B = pv_lasso_noLV1$mod$B
+adx_allele_freq_03 = as.matrix(new_allele_mat_03[, -1]) #remove snpid column
+adx_allele_freq_03 = t(adx_allele_freq_03)
+
+# Align to common populations with env data
+common_adx_03 = intersect(
+  intersect(rownames(X_2023_gcm_mean), rownames(X_gcm_fut)),
+  rownames(adx_allele_freq_03)
+)
+
+adx_allele_freq_03 = adx_allele_freq_03[common_adx_03, , drop = FALSE]
+env_current_03 = as.matrix(X_2023_gcm_mean[common_adx_03, , drop = FALSE])
+#rownames(env_current) = rownames(X_2023_gcm_mean)
+env_future_03 = as.matrix(X_gcm_fut[common_adx_03, , drop = FALSE])
+#rownames(env_future) = rownames(X_gcm_fut)
+lfmm_effects = B
+# lfmm_pvalues = pv_2023$pvalue
+
+
+
+
+adx_offset_all_gcm_mean_03 = calculate_genomic_offset(
+  allele_freq = adx_allele_freq_03,
+  lfmm_effects = B,
+  env_current = env_current_03,
+  env_future = env_future_03,
+  snp_filter = NULL,  # Use all SNPs
+  method = "euclidean"
+)
+```
+
+```{r}
+results_df_adx_03 <- data.frame(
+  population = pop_names,
+  # Offsets
+  offset_all_snps = adx_offset_all_gcm_mean_03$offset,
+  # Genetic values
+  genetic_value_current_all = adx_offset_all_gcm_mean_03$genetic_values_current,
+  genetic_value_future_all = adx_offset_all_gcm_mean_03$genetic_values_future,
+  # Add environmental change magnitude
+  env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
+)
+```
+
+```{r}
+p77 <- ggplot(results_df_adx_03, aes(x = env_change_magnitude, y = offset_all_snps, label = population)) +
+  geom_point(size = 3, alpha = 0.7, color = "darkred") +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  geom_text_repel()+
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    x = "Environmental Change Magnitude",
+    y = "Genomic Offset (ALL SNPs)",
+    title = "Offset vs Environmental Change - Mean of All Models Admixed Mixture alpha = 0.3"
+  )
+print(p77)
+```
+
+Some diagnostics
+
+```{r}
+# Just simple check on pop frequency times B matrix per environmental variable
+
+bfreq_LV1 <- Y_2023["LV1", ] %*% B   # 1 × n_env
+bfreq_SQ3 <- Y_2023["SQ3", ] %*% B   # 1 × n_env
+
+# They are opposite
+rbind(LV1 = bfreq_LV1, SQ3 = bfreq_SQ3)
+
+# Direction of environmental change for LV1 and SQ3
+delta_X_LV1 <- env_future["LV1", ] - env_current["LV1", ]
+print(delta_X_LV1)
+
+delta_X_SQ3 <- env_future["SQ3", ] - env_current["SQ3", ]
+print(delta_X_SQ3)
+
+# The genetic value shift per variable is bfreq × delta_X
+# If bfreq_LV1 and delta_X are the same sign = positive offset contribution
+# Testing whether introducing SQ3 alleles changes bfreq — does it move it toward or away
+# from cancelling delta_X?
+
+gval_shift_LV1 <- as.numeric(bfreq_LV1) * as.numeric(delta_X_LV1) 
+gval_shift_SQ3 <- as.numeric(bfreq_SQ3) * as.numeric(delta_X_LV1)
+
+# The sign of gval_shift tells us: 
+# positive = this variable increases offset
+# negative = this variable decreases offset
+# If SQ3's contribution has the same or larger sign than LV1's, then admixture will not help
+
+rbind(
+  LV1_gval_shift = gval_shift_LV1,
+  SQ3_gval_shift = gval_shift_SQ3
+) %>% 
+  as.data.frame() %>%
+  setNames(colnames(env_current)) %>%
+  print()
+```
+
+```{r}
+simulate_rescue_generations <- function(Y_full,
+                                         recipient,
+                                         donor,
+                                         B_loo,
+                                         X_current,
+                                         X_future,
+                                         alpha        = 0.20,
+                                         n_gen        = 10,
+                                         n_ind        = 200,
+                                         selection    = TRUE) {
+  
+  n_snp <- ncol(Y_full)
+  
+  # ── Step 1: Sample individual genotypes from population frequencies ──────────
+  # Under HWE, genotype counts are binomial draws from allele frequency
+  # Returns n_ind × n_snp matrix of {0, 1, 2} genotypes
+  
+  sample_genotypes <- function(freq_vec, n) {
+    matrix(rbinom(n * length(freq_vec), size = 2, prob = freq_vec),
+           nrow = n, ncol = length(freq_vec), byrow = TRUE)
+  }
+  
+  # ── Step 2: Compute individual genetic values and offset ─────────────────────
+  # Individual genetic value = genotype_vec %*% B_loo (summed across env vars)
+  # Offset = Euclidean distance in genetic value space current vs future
+  
+  compute_individual_offset <- function(geno_mat) {
+    G_current <- (geno_mat %*% B_loo) * 
+                  matrix(X_current[recipient, ], nrow = nrow(geno_mat), 
+                         ncol = ncol(B_loo), byrow = TRUE)
+    G_future  <- (geno_mat %*% B_loo) * 
+                  matrix(X_future[recipient, ],  nrow = nrow(geno_mat), 
+                         ncol = ncol(B_loo), byrow = TRUE)
+    sqrt(rowSums((G_future - G_current)^2))   # n_ind offset values
+  }
+  
+  # ── Step 3: Reproduce next generation with recombination ─────────────────────
+  # Each offspring draws alleles from two randomly paired parents
+  # Recombination: at each SNP, allele drawn from parent 1 or parent 2
+  # with equal probability — approximates free recombination
+  
+  reproduce <- function(geno_mat, n_offspring) {
+    n    <- nrow(geno_mat)
+    # Random parent pairs
+    p1   <- geno_mat[sample(n, n_offspring, replace = TRUE), ]
+    p2   <- geno_mat[sample(n, n_offspring, replace = TRUE), ]
+    # At each SNP, each allele drawn from p1 or p2 with prob 0.5
+    mask <- matrix(rbinom(n_offspring * n_snp, 1, 0.5),
+                   nrow = n_offspring, ncol = n_snp)
+    p1 * mask + p2 * (1 - mask)
+  }
+  
+  # ── Step 4: Soft selection ───────────────────────────────────────────────────
+  # Individuals with lower offset under future climate have higher fitness
+  # Fitness = 1 / (1 + offset) — simple inverse, no extra parameters
+  # Sample next generation proportional to fitness
+  
+  select_individuals <- function(geno_mat) {
+    offsets <- compute_individual_offset(geno_mat)
+    fitness <- 1 / (1 + offsets)
+    geno_mat[sample(nrow(geno_mat), nrow(geno_mat), replace = TRUE,
+                    prob = fitness / sum(fitness)), ]
+  }
+  
+  # ── Step 5: Population offset from allele frequencies ───────────────────────
+  pop_offset_from_geno <- function(geno_mat) {
+    freq <- colMeans(geno_mat) / 2   # convert {0,1,2} back to [0,1] frequency
+    calculate_genomic_offset(
+      allele_freq  = matrix(freq, nrow = 1),
+      lfmm_effects = B_loo,
+      env_current  = X_current[recipient, , drop = FALSE],
+      env_future   = X_future[recipient, , drop = FALSE]
+    )$offset
+  }
+  
+  # ── Main simulation ──────────────────────────────────────────────────────────
+  
+  # Initialize populations
+  geno_recipient <- sample_genotypes(Y_full[recipient, ], n_ind)
+  geno_donor     <- sample_genotypes(Y_full[donor, ],     n_ind)
+  
+  # F0: admix at proportion alpha by pooling individuals
+  n_donor_ind     <- round(alpha * n_ind)
+  n_recipient_ind <- n_ind - n_donor_ind
+  
+  geno_current <- rbind(
+    geno_recipient[1:n_recipient_ind, ],
+    geno_donor[1:n_donor_ind, ]
+  )
+  
+  # Record offset at each generation
+  results <- data.frame(
+    generation = 0:n_gen,
+    offset     = NA_real_
+  )
+  results$offset[1] <- pop_offset_from_geno(geno_current)
+  
+  for (g in seq_len(n_gen)) {
+    if (selection) geno_current <- select_individuals(geno_current)
+    geno_current        <- reproduce(geno_current, n_ind)
+    results$offset[g+1] <- pop_offset_from_geno(geno_current)
+  }
+  
+  return(results)
+}
+```
+
+```{r}
+# Single donor-recipient pair
+res <- simulate_rescue_generations(
+  Y_full    = Y_2023,
+  recipient = "LV1",
+  donor     = "SQ1",
+  B_loo     = B,
+  X_current = env_current,
+  X_future  = env_future,
+  alpha     = 0.20,
+  n_gen     = 10,
+  n_ind     = 200,
+  selection = TRUE
+)
+
+# Compare multiple donors
+donors <- c("SQ1", "SQ2", "SQ3", "BH")
+
+all_res <- lapply(donors, function(d) {
+  simulate_rescue_generations(
+    Y_full = Y_2023, recipient = "LV1", donor = d,
+    B_loo = B, X_current = env_current, 
+    X_future = env_future, alpha = 0.20, n_gen = 10
+  ) %>% mutate(donor = d)
+}) %>% bind_rows()
+
+# Baseline — no admixture
+baseline <- simulate_rescue_generations(
+  Y_full = Y_2023, recipient = "LV1", donor = "LV1",
+  B_loo = B, X_current = env_current,
+  X_future = env_future, alpha = 0, n_gen = 10
+) %>% mutate(donor = "No admixture")
+
+# Plot
+bind_rows(all_res, baseline) %>%
+  ggplot(aes(x = generation, y = offset, 
+             color = donor, group = donor)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_doc() +
+  labs(x = "Generation", y = "Genomic Offset",
+       color = "Donor",
+       title = paste("Simulated rescue trajectory — recipient: LV1"),
+       subtitle = "Selection on offset each generation; recombination via free assortment")
+```
+
+RDA analysis sample code
+
+```{r}
+# Initialize the vegan package and source the plotting script
+library(vegan)
+library(tidyverse)
+source("analysis_functions.R")
+```
+
+```{r}
+fams = scan("data/fam.txt", what = character())
+
+climate_data = read_tsv("data/Historical_climate_caladapt_1950_2004.tsv") |>
+filter(id %in% fams) |>
+group_by(id, cvar, dt) |>
+summarize(mean_val = mean(val)) |>
+ungroup()
+
+aggregate_data = climate_data |>
+group_by(id, cvar, dt) |>
+filter(dt >= '1990-12-31') |>
+summarize(mean = mean(mean_val)) |>
+cv = sd(mean_val)/mean) |>
+ungroup() |>
+pivot_longer(cols = mean:cv) |>
+unite(name, cvar:name) |>
+pivot_wider(id_cols = id, names_from = name, values_from = value)
+
+allele_data = read_csv("data/snp_allele_freq_mat.csv")
+SNP_data = allele_data$SNP_ID
+allele_data = allele_data |>
+select(-SNP_ID)
+allele_freq_t = t(allele_data[,aggregate_data$id])
+
+```
+
+
+```{r}
+env_vars = aggregate_data[, c("pr_mean", "pr_cv", "tasmax_mean", "tasmax_cv", "tasmin_mean", 
+"tasmin_cv")]
+
+env_vars_scaled = scale(env_vars)
+
+# Pure environmental model (IBE)  
+env_rda = rda(allele_freq_t ~ ., data = as.data.frame(env_vars_scaled))
+
+env_rda_scores = extract_rda_scores(env_rda)
+env_biplot = plot_rda_biplot(env_rda_scores, title = "Mean of all model", vector_scale = 2)
+
+print(env_biplot)
 
 ```
