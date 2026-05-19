@@ -1,0 +1,241 @@
+---
+title: "RDA_analysis"
+output: html_document
+date: "2026-05-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load libraries
+```{r}
+library(tidyverse)
+library(ggthemes)
+library(ggrepel)
+library(patchwork)
+library(lfmm)
+library(ggplot2)
+library(dplyr)
+library(vegan)
+source("analysis_functions.R")
+```
+
+
+Read Future Climate data
+```{r}
+fut_data = read.delim("data/Future_climate_ppt_caladapt_2040_2070.tsv", header = TRUE)
+```
+
+```{r}
+# We would be using this new data and not the old one.
+geno_23 = read.delim("data/snp_allele_freq_mat.csv", header = TRUE, sep = ",")
+pops =colnames(geno_23)[-1]
+npop = length(pops)
+```
+
+```{r}
+fams = scan("data/fam.txt", what = character())
+climate_data = read_tsv("data/Historical_climate_caladapt_1950_2004.tsv") |>
+filter(id %in% fams) |>
+  group_by(id, gcm, cvar, dt) |>
+  summarize(mean_val = mean(val)) |>
+  ungroup()
+```
+
+
+```{r}
+allele_data = read_csv("data/snp_allele_freq_mat.csv")
+SNP_data = allele_data$SNP_ID
+allele_data = allele_data |>
+select(-SNP_ID)
+allele_freq_t = t(allele_data[,aggregate_data$id])
+```
+
+
+##mean of all climate models
+```{r}
+aggregate_data = climate_data |>
+filter(dt >= '1990-12-31') |>
+group_by(id, cvar) |>
+summarize(
+  mean = mean(mean_val),
+  cv = sd(mean_val)/mean ) |>
+ungroup() |>
+pivot_longer(cols = c(mean, cv)) |>
+unite(name, cvar, name) |>
+pivot_wider(id_cols = id, names_from = name, values_from = value)
+```
+
+
+```{r}
+env_vars = aggregate_data[, c("pr_mean", "pr_cv", "tasmax_mean", "tasmax_cv", "tasmin_mean", 
+"tasmin_cv")] |>
+  mutate(across(everything(), as.numeric))
+
+env_vars_scaled = scale(env_vars)
+
+# Pure environmental model (IBE)  
+env_rda = rda(allele_freq_t ~ ., data = as.data.frame(env_vars_scaled))
+
+env_rda_scores = extract_rda_scores(env_rda)
+env_biplot = plot_rda_biplot(env_rda_scores, title = "Mean of all model", vector_scale = 2)
+
+print(env_biplot)
+
+```
+
+```{r}
+ggsave("../Figures/env_bioplot.png", plot = env_biplot, width = 8, height = 6, dpi = 300)
+```
+
+
+##HadGEM2-ES climate model
+```{r}
+HadGEM2_aggregate_data = climate_data |>
+filter(gcm == "HadGEM2-ES", dt >= '1990-12-31') |>
+  group_by(id, cvar) |>
+  summarize(
+  mean = mean(mean_val),
+  cv = sd(mean_val)/mean ) |>
+  ungroup() |>
+  pivot_longer(cols = c(mean, cv)) |>
+  unite(name, cvar, name) |>
+  pivot_wider(id_cols = id, names_from = name, values_from = value)
+```
+
+
+```{r}
+env_vars_HadGEM2 = HadGEM2_aggregate_data[, c("pr_mean", "pr_cv", "tasmax_mean", "tasmax_cv", "tasmin_mean", 
+"tasmin_cv")] |>
+  mutate(across(everything(), as.numeric))
+
+env_vars_scaled_HadGEM2 = scale(env_vars_HadGEM2)
+
+# Pure environmental model (IBE)  
+env_rda_HadGEM2 = rda(allele_freq_t ~ ., data = as.data.frame(env_vars_scaled_HadGEM2))
+
+env_rda_scores_HadGEM2 = extract_rda_scores(env_rda_HadGEM2)
+env_biplot_HadGEM2 = plot_rda_biplot(env_rda_scores_HadGEM2, title = "HadGEM2-ES", vector_scale = 2)
+
+print(env_biplot_HadGEM2)
+
+```
+
+```{r}
+ggsave("../Figures/env_bioplot_HadGEM2.png", plot = env_biplot_HadGEM2, width = 8, height = 6, dpi = 300)
+```
+
+
+##CNRM-CM5 climate model
+```{r}
+CNRM_CM5_aggregate_data = climate_data |>
+filter(gcm == "CNRM-CM5", dt >= '1990-12-31') |>
+  group_by(id, cvar) |>
+  summarize(
+  mean = mean(mean_val),
+  cv = sd(mean_val)/mean ) |>
+  ungroup() |>
+  pivot_longer(cols = c(mean, cv)) |>
+  unite(name, cvar, name) |>
+  pivot_wider(id_cols = id, names_from = name, values_from = value)
+```
+
+
+```{r}
+env_vars_CNRM_CM5 = CNRM_CM5_aggregate_data[, c("pr_mean", "pr_cv", "tasmax_mean", "tasmax_cv", "tasmin_mean", 
+"tasmin_cv")] |>
+  mutate(across(everything(), as.numeric))
+
+env_vars_scaled_CNRM_CM5 = scale(env_vars_CNRM_CM5)
+
+# Pure environmental model (IBE)  
+env_rda_CNRM_CM5 = rda(allele_freq_t ~ ., data = as.data.frame(env_vars_scaled_CNRM_CM5))
+
+env_rda_scores_CNRM_CM5 = extract_rda_scores(env_rda_CNRM_CM5)
+env_biplot_CNRM_CM5 = plot_rda_biplot(env_rda_scores_CNRM_CM5, title = "CNRM-CM5", vector_scale = 2)
+
+print(env_biplot_CNRM_CM5)
+
+```
+
+```{r}
+ggsave("../Figures/env_bioplot_CNRM_CM5.png", plot = env_biplot_CNRM_CM5, width = 8, height = 6, dpi = 300)
+```
+
+
+
+##CanESM2 climate model
+```{r}
+CanESM2_aggregate_data = climate_data |>
+filter(gcm == "CanESM2", dt >= '1990-12-31') |>
+  group_by(id, cvar) |>
+  summarize(
+  mean = mean(mean_val),
+  cv = sd(mean_val)/mean ) |>
+  ungroup() |>
+  pivot_longer(cols = c(mean, cv)) |>
+  unite(name, cvar, name) |>
+  pivot_wider(id_cols = id, names_from = name, values_from = value)
+```
+
+
+```{r}
+env_vars_CanESM2 = CanESM2_aggregate_data[, c("pr_mean", "pr_cv", "tasmax_mean", "tasmax_cv", "tasmin_mean", 
+"tasmin_cv")] |>
+  mutate(across(everything(), as.numeric))
+
+env_vars_scaled_CanESM2 = scale(env_vars_CanESM2)
+
+# Pure environmental model (IBE)  
+env_rda_CanESM2 = rda(allele_freq_t ~ ., data = as.data.frame(env_vars_scaled_CanESM2))
+
+env_rda_scores_CanESM2 = extract_rda_scores(env_rda_CanESM2)
+env_biplot_CanESM2 = plot_rda_biplot(env_rda_scores_CanESM2, title = "CanESM2", vector_scale = 2)
+
+print(env_biplot_CanESM2)
+
+```
+
+```{r}
+ggsave("../Figures/env_bioplot_CanESM2.png", plot = env_biplot_CanESM2, width = 8, height = 6, dpi = 300)
+```
+
+
+##MIROC5 climate model
+```{r}
+MIROC5_aggregate_data = climate_data |>
+filter(gcm == "MIROC5", dt >= '1990-12-31') |>
+  group_by(id, cvar) |>
+  summarize(
+  mean = mean(mean_val),
+  cv = sd(mean_val)/mean ) |>
+  ungroup() |>
+  pivot_longer(cols = c(mean, cv)) |>
+  unite(name, cvar, name) |>
+  pivot_wider(id_cols = id, names_from = name, values_from = value)
+```
+
+
+```{r}
+env_vars_MIROC5 = MIROC5_aggregate_data[, c("pr_mean", "pr_cv", "tasmax_mean", "tasmax_cv", "tasmin_mean", 
+"tasmin_cv")] |>
+  mutate(across(everything(), as.numeric))
+
+env_vars_scaled_MIROC5 = scale(env_vars_MIROC5)
+
+# Pure environmental model (IBE)  
+env_rda_MIROC5 = rda(allele_freq_t ~ ., data = as.data.frame(env_vars_scaled_MIROC5))
+
+env_rda_scores_MIROC5 = extract_rda_scores(env_rda_MIROC5)
+env_biplot_MIROC5 = plot_rda_biplot(env_rda_scores_MIROC5, title = "MIROC5", vector_scale = 2)
+
+print(env_biplot_MIROC5)
+
+```
+
+```{r}
+ggsave("../Figures/env_bioplot_MIROC5.png", plot = env_biplot_MIROC5, width = 8, height = 6, dpi = 300)
+```
+
+
