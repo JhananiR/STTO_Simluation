@@ -441,11 +441,26 @@ CanESM2_mean = mean_his %>%
   pivot_wider(names_from = name, values_from = value)
 ```
 
+#for genomic offset
+```{r}
+CanESM2_fut_mean = mean_fut %>% 
+  filter(gcm == "CanESM2") %>% 
+  pivot_wider(names_from = cvar, values_from = mean_val)
+```
 
 ```{r}
 X_2023_CanESM2 = CanESM2_mean %>% 
   ungroup() %>% 
   select(-id) %>% 
+  as.matrix() %>% 
+  scale()
+```
+
+#for genomic offset
+```{r}
+X_CanESM2_fut = CanESM2_fut_mean %>% 
+  ungroup() %>% 
+  select(tasmax, tasmin, pr) %>% 
   as.matrix() %>% 
   scale()
 ```
@@ -456,6 +471,13 @@ common = intersect(rownames(X_2023_CanESM2), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
 X_2023_CanESM2 = X_2023_CanESM2[common, , drop = FALSE]
 ```
+
+#for genomic offset
+```{r}
+rownames(X_CanESM2_fut) = CanESM2_fut_mean$id
+X_CanESM2_fut = X_CanESM2_fut[common, , drop = FALSE]
+```
+
 
 ```{r}
 pv_lasso_CanESM2 = run_lasso(X_2023_CanESM2, Y_2023)
@@ -581,7 +603,7 @@ MIROC5_mean = mean_his %>%
   pivot_wider(names_from = name, values_from = value)
 ```
 
-for genomic offset
+#for genomic offset
 ```{r}
 MIROC5_fut_mean = mean_fut %>% 
   filter(gcm == "MIROC5") %>% 
@@ -597,7 +619,7 @@ X_2023_MIROC5 = MIROC5_mean %>%
   scale()
 ```
 
-for genomic offset
+#for genomic offset
 ```{r}
 X_MIROC5_fut = MIROC5_fut_mean %>% 
   ungroup() %>% 
@@ -614,7 +636,8 @@ Y_2023 = Y_2023[common,]
 X_2023_MIROC5 = X_2023_MIROC5[common, , drop = FALSE]
 ```
 
-for genomic offset
+
+#for genomic offset
 ```{r}
 rownames(X_MIROC5_fut) = MIROC5_fut_mean$id
 X_MIROC5_fut = X_MIROC5_fut[common, , drop = FALSE]
@@ -901,7 +924,7 @@ MIROC5_mean = mean_his %>%
 
 ```{r}
 MIROC5_fut_mean = mean_fut %>% 
-  filter(gcm == "MIROC5", scenario == "rcp85") %>% 
+  filter(gcm == "MIROC5", scenario == "rcp45") %>% 
   pivot_longer(cols = mean_val:cv) %>% 
   unite(name, cvar:name) %>% 
   pivot_wider(names_from = name, values_from = value)
@@ -1015,7 +1038,7 @@ CNRM_CM5_mean = mean_his %>%
 
 ```{r}
 CNRM_CM5_fut_mean = mean_fut %>% 
-  filter(gcm == "CNRM-CM5", scenario == "rcp85") %>% 
+  filter(gcm == "CNRM-CM5", scenario == "rcp45") %>% 
   pivot_longer(cols = mean_val:cv) %>% 
   unite(name, cvar:name) %>% 
   pivot_wider(names_from = name, values_from = value)
@@ -1053,12 +1076,13 @@ X_CNRM_CM5_fut = X_CNRM_CM5_fut[common, , drop = FALSE]
 
 
 ```{r}
+B = pv_lasso_CNRM_CM5$mod$B
 allele_freq = Y_2023
 env_current = as.matrix(X_2023_CNRM_CM5)
-rownames(env_current) = pops
+#rownames(env_current) = pops
 env_future = as.matrix(X_CNRM_CM5_fut)
-rownames(env_future) = pops
-lfmm_effects = pv_lasso_CNRM_CM5$B
+#rownames(env_future) = pops
+lfmm_effects = B
 # lfmm_pvalues = pv_2023$pvalue
 pop_names = rownames(allele_freq)
 
@@ -1072,6 +1096,7 @@ offset_all = calculate_genomic_offset(
   method = "euclidean"
 )
 ```
+
 ```{r}
 results_df <- data.frame(
   population = pop_names,
@@ -1122,7 +1147,7 @@ CanESM2_mean = mean_his %>%
 
 ```{r}
 CanESM2_fut_mean = mean_fut %>% 
-  filter(gcm == "CanESM2", scenario == "rcp85") %>% 
+  filter(gcm == "CanESM2", scenario == "rcp45") %>% 
   pivot_longer(cols = mean_val:cv) %>% 
   unite(name, cvar:name) %>% 
   pivot_wider(names_from = name, values_from = value)
@@ -1148,7 +1173,7 @@ X_CanESM2_fut = CanESM2_fut_mean %>%
 
 ```{r}
 rownames(X_2023_CanESM2) = CanESM2_mean$id
-common = intersect(rownames(X_2023_CNRM_CM5), rownames(Y_2023))
+common = intersect(rownames(X_2023_CanESM2), rownames(Y_2023))
 Y_2023 = Y_2023[common,]
 X_2023_CanESM2 = X_2023_CanESM2[common, , drop = FALSE]
 ```
@@ -1160,12 +1185,13 @@ X_CanESM2_fut = X_CanESM2_fut[common, , drop = FALSE]
 
 
 ```{r}
+B = pv_lasso_CanESM2$mod$B
 allele_freq = Y_2023
 env_current = as.matrix(X_2023_CanESM2)
-rownames(env_current) = pops
+#rownames(env_current) = pops
 env_future = as.matrix(X_CanESM2_fut)
-rownames(env_future) = pops
-lfmm_effects = pv_lasso_CanESM2$B
+#rownames(env_future) = pops
+lfmm_effects = B
 # lfmm_pvalues = pv_2023$pvalue
 pop_names = rownames(allele_freq)
 
@@ -1267,12 +1293,13 @@ X_HadGEM2_fut = X_HadGEM2_fut[common, , drop = FALSE]
 
 
 ```{r}
+B = pv_lasso_HadGEM2$mod$B
 allele_freq = Y_2023
 env_current = as.matrix(X_2023_HadGEM2)
-rownames(env_current) = pops
+#rownames(env_current) = pops
 env_future = as.matrix(X_HadGEM2_fut)
-rownames(env_future) = pops
-lfmm_effects = pv_lasso_HadGEM2$B
+#rownames(env_future) = pops
+lfmm_effects = B
 # lfmm_pvalues = pv_2023$pvalue
 pop_names = rownames(allele_freq)
 
@@ -1623,7 +1650,9 @@ p1 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, labe
   )
 print(p1)
 ```
-
+```{r}
+ggsave("../Figures/offset_mean_all.png", plot = p1, width = 12, height = 6, dpi = 300)
+```
 
 
 
