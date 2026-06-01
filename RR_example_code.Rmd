@@ -37,7 +37,10 @@ max_temp = rnorm(npop),
 min_temp = rnorm(npop),
 cwd = rnorm(npop),
 ppt = rnorm(npop))
+
+loo_cv = readRDS("data/loo_cv.RDS")
 ```
+
 
 Now set up the data for LFMM
 
@@ -550,6 +553,7 @@ Some diagnostics
 
 ```{r}
 # Just simple check on pop frequency times B matrix per environmental variable
+B = loo_cv$full_model$B
 
 bfreq_LV1 <- Y_2023["LV1", ] %*% B   # 1 × n_env
 bfreq_SQ3 <- Y_2023["SQ3", ] %*% B   # 1 × n_env
@@ -783,12 +787,31 @@ env_vars = aggregate_data[, c("pr_mean", "pr_cv", "tasmax_mean", "tasmax_cv", "t
 
 env_vars_scaled = scale(env_vars)
 
-# Pure environmental model (IBE)  
+# Pure environmental model (IBE)
 env_rda = rda(allele_freq_t ~ ., data = as.data.frame(env_vars_scaled))
 
 env_rda_scores = extract_rda_scores(env_rda)
 env_biplot = plot_rda_biplot(env_rda_scores, title = "Mean of all model", vector_scale = 2)
 
 print(env_biplot)
+
+```
+
+```{r}
+loo_cv   <- readRDS("data/loo_cv.RDS")
+
+final_df <- loo_cv$comparison %>%
+  left_join(metadata %>% select(Site_code, Elevation, Lat, Long),
+            by = c("population" = "Site_code")) %>%
+  mutate(
+    leverage_class = case_when(
+      offset_loo > offset_full * 1.5 ~ "Underestimated (full model)",
+      offset_loo < offset_full * 0.5 ~ "Overestimated (full model)",
+      TRUE                           ~ "Stable"
+    ),
+    cluster   = cluster_assignments[population],
+    is_lv     = population %in% lv_pops,
+    is_lever  = population %in% leverage_pops
+  )
 
 ```
