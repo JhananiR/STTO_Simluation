@@ -248,6 +248,10 @@ X_hist = hist_summary %>%
   scale()
 ```
 
+```{r}
+Y_2023 = as.matrix(geno_23[,-1])
+Y_2023 = t(Y_2023)
+```
 #align rows with Y matrix
 ```{r}
 rownames(X_hist) = hist_summary$population
@@ -260,9 +264,6 @@ X_hist = X_hist[common, , drop = FALSE]
 pv_lasso_hist = run_lasso(X_hist, Y_2023)
 ```
 
-```{r}
-head(pv_lasso_hist$mod$B)
-```
 
 #qq plots (6)
 ```{r}
@@ -279,6 +280,17 @@ print(pr4)
 print(pr5)
 print(pr6)
 ```
+
+```{r}
+ggsave("../Figures/pv_lasso_hist_mean_max_temp.png", plot = pr1, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_hist_mean_min_temp.png", plot = pr2, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_hist_mean_pr.png", plot = pr3, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_hist_cv_max_temp.png", plot = pr4, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_hist_cv_min_temp.png", plot = pr5, width = 10, height = 6)
+ggsave("../Figures/pv_lasso_hist_cv_pr.png", plot = pr6, width = 10, height = 6)
+```
+
+
 #manhattan plots
 ```{r}
 plot_data_2023 = tibble(loci = geno_23[,1], p_val = pv_lasso_hist$pv$pvalue[,1], calibrated.pvalue = pv_lasso_hist$pv$calibrated.pvalue[,1]) |>
@@ -568,10 +580,10 @@ offset_all = calculate_genomic_offset(
 results_df <- data.frame(
   population = pop_names,
   # Offsets
-  offset_all_snps = offset_all_gcm_mean$offset,
+  offset_all_snps = offset_all$offset,
   # Genetic values
-  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
-  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  genetic_value_current_all = offset_all$genetic_values_current,
+  genetic_value_future_all = offset_all$genetic_values_future,
   # Add environmental change magnitude
   env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
 )
@@ -594,7 +606,9 @@ pr14 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, la
   )
 print(pr14)
 ```
-
+```{r}
+ggsave("../Figures/offset_mean_all_ssp245.png", plot = pr14, width = 12, height = 6, dpi = 300)
+```
 
 ```{r}
 fut_mean_summary_2 = fut_data %>%
@@ -657,10 +671,10 @@ offset_all = calculate_genomic_offset(
 results_df <- data.frame(
   population = pop_names,
   # Offsets
-  offset_all_snps = offset_all_gcm_mean$offset,
+  offset_all_snps = offset_all$offset,
   # Genetic values
-  genetic_value_current_all = offset_all_gcm_mean$genetic_values_current,
-  genetic_value_future_all = offset_all_gcm_mean$genetic_values_future,
+  genetic_value_current_all = offset_all$genetic_values_current,
+  genetic_value_future_all = offset_all$genetic_values_future,
   # Add environmental change magnitude
   env_change_magnitude = sqrt(rowSums((env_future - env_current)^2))
 )
@@ -682,4 +696,7 @@ pr15 <- ggplot(results_df, aes(x = env_change_magnitude, y = offset_all_snps, la
     title = "Offset vs Environmental Change - Mean of All Models: ssp370"
   )
 print(pr15)
+```
+```{r}
+ggsave("../Figures/offset_mean_all_ssp370.png", plot = pr15, width = 12, height = 6, dpi = 300)
 ```
