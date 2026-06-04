@@ -1,0 +1,360 @@
+# =============================================================================
+# RDA-based Genomic Offset — Latent Space Approach
+# =============================================================================
+# Mirrors the PLS offset script. Key differences:
+#   - Uses vegan::rda() LC scores instead of sPLS X variates
+#   - Offset computed on significant RDA axes only (from permutation test)
+#   - predict.rda(type = "lc") for future projection
+#
+# Assumes in environment:
+#   - rda_mod            : fitted vegan rda object on historical data
+#   - Y_2023             : allele freq matrix, pop × SNP
+#   - X_hist             : scaled historical climate matrix (with scale attrs)
+#   - hist_center/scale  : from attr(X_hist, "scaled:center/scale")
+#   - pop_names          : character vector
+#   - metadata           : Site_code, Elevation, Lat, Long
+#   - climate_data_future: LOCA2 future TSV
+#   - uncertainty_df     : from PLS script (vulnerability_class per pop)
+# =============================================================================
+
+library(tidyverse)
+library(vegan)
+library(ggrepel)
+library(patchwork)
+library(ggdoctheme)
+
+ENV_VARS   <- c("ppt_mean", "ppt_cv", "tasmax_mean", "tasmax_cv", "tasmin_mean", 
+"tasmin_cv")
+MODELS     <- c("access-cm2", "cnrm-esm2-1", "ec-earth3-veg",
+                "miroc6", "mpi-esm1-2-hr", "mri-esm2-0")
+SCENARIOS  <- c("ssp245", "ssp370")
+OUT_DIR    <- "results/rda_offset"
+
+metadata = read_tsv("data/stto_pop_metadata.tsv")
+
+dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
+
+
+# Step 1. Calculate the RDA
+
+allele_data = read_csv("data/snp_allele_freq_mat.csv")
+SNP_data = allele_data$SNP_ID
+allele_data = allele_data |>
+select(-SNP_ID)
+fams = colnames(allele_data)
+
+
+X <- read_tsv("data/Flint_agg_data.tsv") |>
+filter(population %in% fams) |>
+pivot_longer(cols = ppt:tasmin, names_to = "cvar", values_to = "val") |>
+group_by(population, cvar) |>
+summarize(mean = mean(val),
+cv = sd(val)/mean, .groups = "drop") |>
+pivot_longer(cols = mean:cv) |>
+unite(name, cvar:name) |>
+pivot_wider(id_cols = population, names_from = name, values_from = value) |>
+dplyr::select(population, all_of(ENV_VARS)) %>%
+{ m <- as.matrix(.[, -1]); rownames(m) <- .$population; scale(m) }
+
+hist_center <- attr(X, "scaled:center")
+hist_scale  <- attr(X, "scaled:scale")
+
+allele_freq_t = t(allele_data[,rownames(X)])
+
+rda_obj = rda(allele_freq_t ~ ppt_mean + tasmax_mean + tasmin_mean + ppt_cv + tasmax_cv + tasmin_cv, 
+    data = as.data.frame(X))
+
+
+# =============================================================================
+# SECTION 1 — Determine significant RDA axes
+# =============================================================================
+# Use your existing permutation test to decide how many axes to retain.
+# If you've already run this, just set N_RDA_AXES manually.
+
+#cat("Testing RDA axis significance via permutation...\n")
+#axis_test <- anova(rda_obj, by = "axis", permutations = 100)
+#print(axis_test)
+
+# Retain axes with p < 0.05
+#sig_axes <- which(axis_test$`Pr(>F)` < 0.05)
+N_RDA_AXES <- 2
+cat("Significant RDA axes:", N_RDA_AXES, "\n")
+
+# Variance explained by each axis
+rda_varexp <- summary(eigenvals(rda_obj, constrained = TRUE))
+cat("Variance explained by constrained axes:\n")
+print(round(rda_varexp, 3))
+
+# Historical LC scores for significant axes only
+hist_lc <- scores(rda_obj, display = "lc", scaling = 1,
+                  choices = 1:N_RDA_AXES)
+# Ensure row order matches pop_names
+hist_lc <- hist_lc[fams, , drop = FALSE]
+
+
+# =============================================================================
+# SECTION 2 — Future climate aggregation
+# (reuse helpers from PLS script or redefine here)
+# =============================================================================
+
+aggregate_future_climate <- function(future_df, model_id, scenario_id, env_vars,
+                                      hist_center, hist_scale, pop_names) {
+  df <- future_df |>
+    filter(model == model_id,
+           experiment == scenario_id) |>
+    pivot_longer(cols = tasmax:ppt, names_to = "variable", values_to = "value") |>
+group_by(population, variable) |>
+summarize(mean = mean(value),
+cv = sd(value)/mean, .groups = "drop") |>
+pivot_longer(cols = mean:cv) |>
+unite(name, variable:name) |>
+pivot_wider(id_cols = population, names_from = name, values_from = value) |>
+    filter(population %in% pop_names) |>
+    arrange(match(population, pop_names)) |>
+    column_to_rownames("population") |>
+    as.matrix()
+
+  # Scale using HISTORICAL center/scale — critical for valid projection
+  scale(df, center = hist_center[env_vars], scale = hist_scale[env_vars])
+}
+
+# Also build ensemble mean per scenario (average across models)
+aggregate_ensemble_future <- function(future_df, scenario_id, env_vars,
+                                       hist_center, hist_scale, pop_names) {
+  future_df |>
+    filter(experiment == scenario_id) |>
+    group_by(population, year) |>
+    summarise(across(tasmax:ppt, mean), .groups = "drop") |>
+    pivot_longer(cols = tasmax:ppt, names_to = "variable", values_to = "value") |>
+group_by(population, variable) |>
+summarize(mean = mean(value),
+cv = sd(value)/mean, .groups = "drop") |>
+pivot_longer(cols = mean:cv) |>
+unite(name, variable:name) |>
+pivot_wider(id_cols = population, names_from = name, values_from = value)  |>
+    filter(population %in% pop_names) |>
+    arrange(match(population, pop_names)) |>
+    column_to_rownames("population") |>
+    as.matrix() |>
+    scale(center = hist_center[env_vars], scale = hist_scale[env_vars])
+}
+
+
+# =============================================================================
+# SECTION 3 — Compute RDA offset for all model × scenario combinations
+# =============================================================================
+
+compute_rda_offset <- function(rda_model, X_future_scaled,
+                                hist_lc, pop_names, n_axes) {
+
+  # newdata must be a data frame with same predictor names as RDA formula
+  newdata_df <- as.data.frame(X_future_scaled)
+
+  # predict type = "lc": linear combination (fitted) site scores
+  # these are purely constraint-driven, no residual WA component
+  fut_lc <- predict(rda_model,
+                    newdata = newdata_df,
+                    type    = "lc",
+                    scaling = 1)[ , 1:n_axes, drop = FALSE]
+
+  shared_pops <- intersect(pop_names, rownames(fut_lc))
+  hist_v <- hist_lc[shared_pops, 1:n_axes, drop = FALSE]
+  fut_v  <- fut_lc[shared_pops,  1:n_axes, drop = FALSE]
+
+  offset <- sqrt(rowSums((fut_v - hist_v)^2))
+
+  list(
+    offset      = offset,
+    hist_lc     = hist_v,
+    fut_lc      = fut_v,
+    shared_pops = shared_pops
+  )
+}
+
+# ── Run all 12 + ensemble ──────────────────────────────────────────────────
+
+climate_data_future = read_tsv("data/LOCA2_climate_data.tsv")
+combo_grid <- expand_grid(model = MODELS, scenario = SCENARIOS)
+
+cat("Computing RDA offsets...\n")
+
+all_rda_offsets <- pmap_dfr(combo_grid, function(model, scenario) {
+  cat(" →", model, "|", scenario, "\n")
+  X_fut <- aggregate_future_climate(
+    climate_data_future, model, scenario, ENV_VARS, hist_center, hist_scale, fams
+  )
+  res <- compute_rda_offset(rda_obj, X_fut, hist_lc, fams, N_RDA_AXES)
+  data.frame(population = res$shared_pops, model, scenario, offset = res$offset)
+})
+
+ensemble_rda <- map_dfr(SCENARIOS, function(scenario) {
+  X_ens <- aggregate_ensemble_future(
+    climate_data_future, scenario, ENV_VARS, hist_center, hist_scale, fams
+  )
+  res <- compute_rda_offset(rda_obj, X_ens, hist_lc, fams, N_RDA_AXES)
+  data.frame(population = res$shared_pops, model = "ensemble", scenario,
+             offset = res$offset)
+})
+
+all_rda_offsets <- bind_rows(all_rda_offsets, ensemble_rda) |>
+  left_join(metadata |> select(Site_code, Elevation, Lat, Long),
+            by = c("population" = "Site_code"))
+
+write_tsv(all_rda_offsets, file.path(OUT_DIR, "all_rda_offset_results.tsv"))
+
+
+# =============================================================================
+# SECTION 4 — Uncertainty summary
+# =============================================================================
+
+rda_uncertainty_df <- all_rda_offsets |>
+  filter(model != "ensemble") |>
+  group_by(population, Elevation) |>
+  summarise(
+    offset_mean = mean(offset),
+    offset_sd   = sd(offset),
+    offset_cv   = sd(offset) / mean(offset),
+    offset_min  = min(offset),
+    offset_max  = max(offset),
+    .groups     = "drop"
+  )
+
+med_offset_rda <- median(rda_uncertainty_df$offset_mean)
+med_cv_rda     <- median(rda_uncertainty_df$offset_cv)
+
+rda_uncertainty_df <- rda_uncertainty_df |>
+  mutate(
+    vulnerability_class = case_when(
+      offset_mean >= med_offset_rda & offset_cv <  med_cv_rda ~ "Robustly vulnerable",
+      offset_mean >= med_offset_rda & offset_cv >= med_cv_rda ~ "Vulnerable, uncertain",
+      offset_mean <  med_offset_rda & offset_cv <  med_cv_rda ~ "Robustly buffered",
+      offset_mean <  med_offset_rda & offset_cv >= med_cv_rda ~ "Genuinely uncertain"
+    )
+  )
+
+vuln_colors <- c(
+  "Robustly vulnerable"   = "#d73027",
+  "Vulnerable, uncertain" = "#fc8d59",
+  "Robustly buffered"     = "#1a9850",
+  "Genuinely uncertain"   = "#878787"
+)
+
+
+# =============================================================================
+# SECTION 5 — RDA biplot with future projections
+# This is the key visualization unique to RDA: you can show the SNP loadings
+# (species scores) alongside population trajectories in the same space
+# =============================================================================
+
+build_rda_arrow_df <- function(rda_model, X_future_scaled,
+                                pop_names, n_axes, model_id, scenario_id) {
+  newdata_df <- as.data.frame(X_future_scaled)
+  fut_lc <- predict(rda_model, newdata = newdata_df,
+                    type = "lc", scaling = 1)[, 1:n_axes, drop = FALSE]
+  hist_lc_plot <- scores(rda_model, display = "lc",
+                         scaling = 1, choices = 1:n_axes)[pop_names, ]
+  shared <- intersect(pop_names, rownames(fut_lc))
+
+  data.frame(
+    population = shared,
+    x_hist     = hist_lc_plot[shared, 1],
+    y_hist     = hist_lc_plot[shared, 2],
+    x_fut      = fut_lc[shared, 1],
+    y_fut      = fut_lc[shared, 2],
+    model      = model_id,
+    scenario   = scenario_id
+  ) |>
+    mutate(rda_dist = sqrt((x_fut - x_hist)^2 + (y_fut - y_hist)^2))
+}
+
+# Environmental variable arrows (biplot scores)
+env_arrows <- scores(rda_obj, display = "bp", scaling = 1) |>
+  as.data.frame() |>
+  rownames_to_column("variable") |>
+  rename(RDA1_arrow = RDA1, RDA2_arrow = RDA2)
+
+# SNP loadings — top loaded SNPs on RDA1 and RDA2 for annotation
+snp_scores <- scores(rda_obj, display = "species", scaling = 1) |>
+  as.data.frame() |>
+  rownames_to_column("snp") |>
+  mutate(loading = sqrt(RDA1^2 + RDA2^2)) |>
+  slice_max(loading, n = 20)   # top 20 SNPs by total loading
+
+# Build arrow data for all combos
+all_arrow_df <- pmap_dfr(combo_grid, function(model, scenario) {
+  X_fut <- aggregate_future_climate(
+    climate_data_future, model, scenario, ENV_VARS, hist_center, hist_scale, fams
+  )
+  build_rda_arrow_df(rda_obj, X_fut, fams, N_RDA_AXES, model, scenario)
+}) |>
+  left_join(rda_uncertainty_df |> select(population, vulnerability_class),
+            by = "population")
+
+# Axis labels
+pct_rda <- round(summary(eigenvals(rda_obj, constrained = TRUE))[2, 1:2] * 100, 1)
+
+# ── Plot: RDA biplot faceted by model × scenario ─────────────────────────────
+
+arrow_scale <- 1.5   # scale env arrows for visibility
+
+p_rda_biplot <- ggplot() +
+  # SNP scores — light background cloud
+  geom_point(data = scores(rda_obj, display = "species", scaling = 1) |>
+               as.data.frame(),
+             aes(x = RDA1, y = RDA2),
+             color = "grey85", size = 0.4, alpha = 0.5) +
+  # Population displacement arrows
+  geom_segment(
+    data = all_arrow_df,
+    aes(x = x_hist, y = y_hist, xend = x_fut, yend = y_fut,
+        color = rda_dist),
+    arrow     = arrow(length = unit(0.15, "cm"), type = "closed"),
+    linewidth = 0.6, alpha = 0.85
+  ) +
+  # Historical positions
+  geom_point(data = all_arrow_df,
+             aes(x = x_hist, y = y_hist),
+             shape = 21, fill = "white", color = "grey30", size = 2) +
+  geom_text_repel(
+    data = all_arrow_df |> distinct(population, x_hist, y_hist),
+    aes(x = x_hist, y = y_hist, label = population),
+    size = 2, color = "grey20", max.overlaps = 12
+  ) +
+  # Environmental variable arrows
+  geom_segment(
+    data = env_arrows,
+    aes(x = 0, y = 0,
+        xend = RDA1_arrow * arrow_scale,
+        yend = RDA2_arrow * arrow_scale),
+    arrow     = arrow(length = unit(0.2, "cm"), type = "closed"),
+    color     = "steelblue", linewidth = 0.8
+  ) +
+  geom_text(
+    data = env_arrows,
+    aes(x = RDA1_arrow * arrow_scale * 1.15,
+        y = RDA2_arrow * arrow_scale * 1.15,
+        label = variable),
+    color = "steelblue", size = 3, fontface = "bold"
+  ) +
+  scale_color_viridis_c(option = "magma", direction = -1,
+                         name = "RDA\ndistance") +
+  facet_grid(scenario ~ model) +
+  theme_bw(base_size = 8) +
+  theme(
+    strip.background = element_rect(fill = "grey92"),
+    strip.text       = element_text(face = "bold", size = 7),
+    legend.position  = "right"
+  ) +
+  labs(
+    x     = paste0("RDA1 (", pct_rda[1], "% constrained var)"),
+    y     = paste0("RDA2 (", pct_rda[2], "% constrained var)"),
+    title = "Population displacement in RDA space — historical → future",
+    subtitle = "Grey cloud = SNP loadings; blue arrows = env variables; colored arrows = population trajectories"
+  )
+
+ggsave(file.path(OUT_DIR, "rda_biplot_all_scenarios.png"),
+       p_rda_biplot, width = 22, height = 8, limitsize = FALSE)
+
+
+cat("\n=== RDA offset complete ===\n")
+cat("Outputs in:", OUT_DIR, "\n")

@@ -815,3 +815,26 @@ final_df <- loo_cv$comparison %>%
   )
 
 ```
+
+Process the Flint agg data for LFMM or other association
+
+```{r}
+X <- read_tsv("data/Flint_agg_data.tsv") |>
+filter(population %in% fams) |>
+pivot_longer(cols = ppt:tasmin, names_to = "cvar", values_to = "val") |>
+group_by(population, cvar) |>
+summarize(mean = mean(val),
+cv = sd(val)/mean, .groups = "drop") |>
+pivot_longer(cols = mean:cv) |>
+unite(name, cvar:name) |>
+pivot_wider(id_cols = population, names_from = name, values_from = value) |>
+dplyr::select(population, all_of(climate_vars)) %>%
+{ m <- as.matrix(.[, -1]); rownames(m) <- .$population; scale(m) }
+
+```
+
+RDA offset calculation
+
+```{r}
+
+```
